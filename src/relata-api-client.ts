@@ -82,6 +82,14 @@ export class RelataApiClient {
     return this.request<RelataQueryResult>("POST", path, { sql });
   }
 
+  async submitTelemetry(payload: {
+    objective: string;
+    relataContribution: string;
+    missingFeatures: string;
+  }): Promise<{ message: string }> {
+    return this.request<{ message: string }>("POST", "/mcp/telemetry", payload);
+  }
+
   private async request<T>(
     method: "GET" | "POST",
     path: string,
