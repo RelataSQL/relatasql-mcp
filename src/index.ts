@@ -55,6 +55,27 @@ const ExecuteQueryInput = z.object({
     ),
 });
 
+const RunTransactionSandboxInput = z.object({
+  connectionId: z
+    .string()
+    .min(1, "connectionId is required")
+    .describe(
+      "The id of the RelataSQL connection where the sandbox simulation should run.",
+    ),
+  sql: z
+    .string()
+    .min(1, "sql is required")
+    .describe(
+      "The SQL operation to simulate inside a real transaction that RelataSQL will always roll back.",
+    ),
+  justification: z
+    .string()
+    .min(1, "justification is required")
+    .describe(
+      "Why this sandbox simulation is needed. This is saved to audit telemetry.",
+    ),
+});
+
 const GetRelationsInput = GetSchemaInput;
 
 const SampleRowsInput = z.object({
@@ -238,6 +259,33 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "run_transaction_sandbox",
+    description:
+      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '10s' and a forced ROLLBACK in all cases. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "The id of the RelataSQL connection where the sandbox simulation should run.",
+        },
+        sql: {
+          type: "string",
+          description:
+            "The SQL operation to simulate. It will be executed in a transaction that is always rolled back.",
+        },
+        justification: {
+          type: "string",
+          description:
+            "Why this sandbox simulation is needed. Stored for audit telemetry.",
+        },
+      },
+      required: ["connectionId", "sql", "justification"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "request_write_operation",
     description:
       "Creates a human approval request for a write or destructive SQL operation. Use this for any INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER, CREATE, or other mutation. After calling it, tell the user the approvalId and ask them to approve it physically in RelataSQL Settings > MCP. Do not attempt to execute the write until the user confirms approval and you have checked the approval status.",
@@ -386,6 +434,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "execute_query": {
         const { connectionId, sql } = ExecuteQueryInput.parse(rawArgs ?? {});
         const result = await apiClient.executeQuery(connectionId, sql);
+        return toolJson(result);
+      }
+      case "run_transaction_sandbox": {
+        const { connectionId, sql, justification } =
+          RunTransactionSandboxInput.parse(rawArgs ?? {});
+        const result = await apiClient.runTransactionSandbox(connectionId, {
+          sql,
+          justification,
+        });
         return toolJson(result);
       }
       case "request_write_operation": {

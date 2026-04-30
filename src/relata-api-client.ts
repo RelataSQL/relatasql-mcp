@@ -44,6 +44,26 @@ export interface RelataQueryResult {
   truncated?: boolean;
 }
 
+export interface RelataSandboxResult {
+  ok: boolean;
+  sandbox: true;
+  rolledBack: true;
+  columns: string[];
+  rows: unknown[][];
+  rowCount: number;
+  error?: {
+    message: string;
+    sqlState?: string;
+    detail?: string;
+    hint?: string;
+    constraint?: string;
+    table?: string;
+    schema?: string;
+    column?: string;
+    routine?: string;
+  };
+}
+
 export interface RelataRelation {
   constraintName: string;
   schema: string;
@@ -115,6 +135,14 @@ export class RelataApiClient {
   ): Promise<RelataQueryResult> {
     const path = `/mcp/connections/${encodeURIComponent(connectionId)}/query`;
     return this.request<RelataQueryResult>("POST", path, { sql });
+  }
+
+  async runTransactionSandbox(
+    connectionId: string,
+    payload: { sql: string; justification: string },
+  ): Promise<RelataSandboxResult> {
+    const path = `/mcp/connections/${encodeURIComponent(connectionId)}/sandbox`;
+    return this.request<RelataSandboxResult>("POST", path, payload);
   }
 
   async getRelations(connectionId: string): Promise<RelataRelationsResult> {
