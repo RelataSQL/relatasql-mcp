@@ -55,6 +55,68 @@ const ExecuteQueryInput = z.object({
     ),
 });
 
+const GetRelationsInput = GetSchemaInput;
+
+const SampleRowsInput = z.object({
+  connectionId: z
+    .string()
+    .min(1, "connectionId is required")
+    .describe(
+      "The id of the RelataSQL connection to sample. Obtain this from list_connections first.",
+    ),
+  schema: z
+    .string()
+    .optional()
+    .describe("Optional schema name. Defaults to public for PostgreSQL."),
+  table: z
+    .string()
+    .min(1, "table is required")
+    .describe("The table name to sample."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Maximum number of rows to return. Defaults to 10, max 50."),
+});
+
+const RequestWriteOperationInput = z.object({
+  connectionId: z
+    .string()
+    .min(1, "connectionId is required")
+    .describe(
+      "The id of the RelataSQL connection where the write/destructive operation would run.",
+    ),
+  sql: z
+    .string()
+    .min(1, "sql is required")
+    .describe(
+      "The exact SQL write/destructive operation that requires human approval. This SQL is persisted by RelataSQL and cannot be changed at execution time.",
+    ),
+  justification: z
+    .string()
+    .min(1, "justification is required")
+    .describe(
+      "A concise explanation of why this write/destructive operation is needed, shown to the human approver.",
+    ),
+  operationSummary: z
+    .string()
+    .optional()
+    .describe(
+      "Optional short title for the requested operation, shown in the RelataSQL approvals UI.",
+    ),
+});
+
+const CheckWriteApprovalInput = z.object({
+  approvalId: z
+    .string()
+    .min(1, "approvalId is required")
+    .describe("The approval id returned by request_write_operation."),
+});
+
+const ExecuteApprovedOperationInput = CheckWriteApprovalInput;
+
 const SubmitFeedbackInput = z.object({
   objective: z
     .string()
@@ -108,9 +170,55 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "get_relations",
+    description:
+      "Retrieves foreign-key relationships for a specific connectionId. Use this after get_schema when you need to understand how tables relate to each other before writing joins or planning data changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "The id of the RelataSQL connection to inspect. Obtain this from list_connections first.",
+        },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "sample_rows",
+    description:
+      "Returns a small sample of rows from a table for quick inspection. This is read-only and capped by the backend. Use it to understand real data shape before proposing queries.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "The id of the RelataSQL connection to sample. Obtain this from list_connections first.",
+        },
+        schema: {
+          type: "string",
+          description: "Optional schema name. Defaults to public for PostgreSQL.",
+        },
+        table: {
+          type: "string",
+          description: "The table name to sample.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of rows to return. Defaults to 10, max 50.",
+        },
+      },
+      required: ["connectionId", "table"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "execute_query",
     description:
-      "Executes a raw SQL query against the specified connectionId and returns the result rows. Use dialect-appropriate syntax for the engine reported by get_schema (postgres, mysql, mssql). Returns an object with columns (array of column names), rows (array of row arrays) and rowCount. Prefer parametrized, read-only queries unless the user explicitly asks for a mutation.",
+      "Executes a raw read-only SQL query against the specified connectionId and returns the result rows. The backend runs this in a PostgreSQL READ ONLY transaction, so INSERT/UPDATE/DELETE/TRUNCATE/DROP/DDL will fail. For any write or destructive operation, use request_write_operation instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -126,6 +234,71 @@ const TOOL_DEFINITIONS = [
         },
       },
       required: ["connectionId", "sql"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "request_write_operation",
+    description:
+      "Creates a human approval request for a write or destructive SQL operation. Use this for any INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER, CREATE, or other mutation. After calling it, tell the user the approvalId and ask them to approve it physically in RelataSQL Settings > MCP. Do not attempt to execute the write until the user confirms approval and you have checked the approval status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "The id of the RelataSQL connection where the operation would run.",
+        },
+        sql: {
+          type: "string",
+          description:
+            "The exact SQL operation requiring approval. This string is persisted and cannot be changed during execution.",
+        },
+        justification: {
+          type: "string",
+          description:
+            "Why this operation is needed. This is shown to the human approver.",
+        },
+        operationSummary: {
+          type: "string",
+          description:
+            "Optional short title for the operation, shown in the approvals UI.",
+        },
+      },
+      required: ["connectionId", "sql", "justification"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "check_write_approval",
+    description:
+      "Checks the current approval and usage status for a write approval request. Use this after the user says they approved or rejected the action in RelataSQL Settings > MCP.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        approvalId: {
+          type: "string",
+          description: "The approval id returned by request_write_operation.",
+        },
+      },
+      required: ["approvalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "execute_approved_operation",
+    description:
+      "Executes a previously approved write operation by approvalId only. This tool never accepts SQL; RelataSQL reads the persisted SQL from the approval record, verifies it is APPROVED and UNUSED, marks it USED, then executes it once.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        approvalId: {
+          type: "string",
+          description:
+            "The approval id returned by request_write_operation and approved by the human in RelataSQL Settings > MCP.",
+        },
+      },
+      required: ["approvalId"],
       additionalProperties: false,
     },
   },
@@ -194,9 +367,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const schema = await apiClient.getSchema(connectionId);
         return toolJson(schema);
       }
+      case "get_relations": {
+        const { connectionId } = GetRelationsInput.parse(rawArgs ?? {});
+        const relations = await apiClient.getRelations(connectionId);
+        return toolJson(relations);
+      }
+      case "sample_rows": {
+        const { connectionId, schema, table, limit } = SampleRowsInput.parse(
+          rawArgs ?? {},
+        );
+        const sample = await apiClient.sampleRows(connectionId, {
+          schema,
+          table,
+          limit,
+        });
+        return toolJson(sample);
+      }
       case "execute_query": {
         const { connectionId, sql } = ExecuteQueryInput.parse(rawArgs ?? {});
         const result = await apiClient.executeQuery(connectionId, sql);
+        return toolJson(result);
+      }
+      case "request_write_operation": {
+        const { connectionId, sql, justification, operationSummary } =
+          RequestWriteOperationInput.parse(rawArgs ?? {});
+        const approval = await apiClient.requestWriteApproval(connectionId, {
+          sql,
+          justification,
+          operationSummary,
+        });
+        return toolJson(approval);
+      }
+      case "check_write_approval": {
+        const { approvalId } = CheckWriteApprovalInput.parse(rawArgs ?? {});
+        const approval = await apiClient.checkWriteApproval(approvalId);
+        return toolJson(approval);
+      }
+      case "execute_approved_operation": {
+        const { approvalId } = ExecuteApprovedOperationInput.parse(rawArgs ?? {});
+        const result = await apiClient.executeApprovedOperation(approvalId);
         return toolJson(result);
       }
       case "submit_agent_feedback": {

@@ -41,6 +41,41 @@ export interface RelataQueryResult {
   columns: string[];
   rows: unknown[][];
   rowCount: number;
+  truncated?: boolean;
+}
+
+export interface RelataRelation {
+  constraintName: string;
+  schema: string;
+  table: string;
+  column: string;
+  foreignSchema: string;
+  foreignTable: string;
+  foreignColumn: string;
+}
+
+export interface RelataRelationsResult {
+  connectionId: string;
+  relations: RelataRelation[];
+}
+
+export interface RelataApproval {
+  id: string;
+  connectionId: string;
+  connectionName: string;
+  databaseName: string;
+  databaseHost: string;
+  databasePort: number;
+  sql: string;
+  justification: string;
+  operationSummary: string | null;
+  approvalStatus: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+  usageStatus: "UNUSED" | "USED";
+  requestedAt: string;
+  decidedAt: string | null;
+  usedAt: string | null;
+  expiresAt: string;
+  executionError: string | null;
 }
 
 export class RelataApiError extends Error {
@@ -80,6 +115,43 @@ export class RelataApiClient {
   ): Promise<RelataQueryResult> {
     const path = `/mcp/connections/${encodeURIComponent(connectionId)}/query`;
     return this.request<RelataQueryResult>("POST", path, { sql });
+  }
+
+  async getRelations(connectionId: string): Promise<RelataRelationsResult> {
+    const path = `/mcp/connections/${encodeURIComponent(connectionId)}/relations`;
+    return this.request<RelataRelationsResult>("GET", path);
+  }
+
+  async sampleRows(
+    connectionId: string,
+    payload: { schema?: string; table: string; limit?: number },
+  ): Promise<RelataQueryResult> {
+    const path = `/mcp/connections/${encodeURIComponent(connectionId)}/sample-rows`;
+    return this.request<RelataQueryResult>("POST", path, payload);
+  }
+
+  async requestWriteApproval(
+    connectionId: string,
+    payload: {
+      sql: string;
+      justification: string;
+      operationSummary?: string;
+    },
+  ): Promise<RelataApproval> {
+    const path = `/mcp/connections/${encodeURIComponent(connectionId)}/write-approvals`;
+    return this.request<RelataApproval>("POST", path, payload);
+  }
+
+  async checkWriteApproval(approvalId: string): Promise<RelataApproval> {
+    const path = `/mcp/write-approvals/${encodeURIComponent(approvalId)}`;
+    return this.request<RelataApproval>("GET", path);
+  }
+
+  async executeApprovedOperation(
+    approvalId: string,
+  ): Promise<RelataQueryResult> {
+    const path = `/mcp/write-approvals/${encodeURIComponent(approvalId)}/execute`;
+    return this.request<RelataQueryResult>("POST", path);
   }
 
   async submitTelemetry(payload: {
