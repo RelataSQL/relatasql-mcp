@@ -17,6 +17,9 @@ export interface RelataConnection {
   port: number;
   databaseName: string;
   workspaceId: string;
+  workspaceName?: string;
+  mcpAccessStatus: "ACTIVE" | "INACTIVE" | "EXPIRED" | "INDEFINITE";
+  mcpGrantedUntil: string | null;
 }
 
 export interface RelataColumn {

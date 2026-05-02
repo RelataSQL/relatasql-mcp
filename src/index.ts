@@ -166,7 +166,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "list_connections",
     description:
-      "Retrieves all available database connections for the authenticated user. Call this first to get the connectionId. Each connection includes id, name, engine (postgres/mysql/mssql), host, port, databaseName and workspaceId. The connectionId returned here is required as input for every other tool in this server.",
+      "Retrieves all available database connections for the authenticated user. Call this first to get the connectionId. Each connection includes id, name, engine (postgres/mysql/mssql), host, port, databaseName, workspaceId, workspaceName, mcpAccessStatus and mcpGrantedUntil. If mcpAccessStatus is INACTIVE or EXPIRED, stop and ask the user to enable temporary access in RelataSQL Settings > MCP before using that connection.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -176,7 +176,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "get_schema",
     description:
-      "Retrieves the database schema (tables, columns, types, primary keys) for a specific connectionId. Essential for writing accurate SQL queries — always call this before execute_query if you don't already know the table structure. Returns a list of tables, each with its columns, dataType, isNullable and isPrimaryKey flags.",
+      "Retrieves the database schema (tables, columns, types, primary keys) for a specific connectionId. Requires active JIT MCP access for that connection. Essential for writing accurate SQL queries — always call this before execute_query if you don't already know the table structure. Returns a list of tables, each with its columns, dataType, isNullable and isPrimaryKey flags.",
     inputSchema: {
       type: "object",
       properties: {
@@ -193,7 +193,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "get_relations",
     description:
-      "Retrieves foreign-key relationships for a specific connectionId. Use this after get_schema when you need to understand how tables relate to each other before writing joins or planning data changes.",
+      "Retrieves foreign-key relationships for a specific connectionId. Requires active JIT MCP access for that connection. Use this after get_schema when you need to understand how tables relate to each other before writing joins or planning data changes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -210,7 +210,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "sample_rows",
     description:
-      "Returns a small sample of rows from a table for quick inspection. This is read-only and capped by the backend. Use it to understand real data shape before proposing queries.",
+      "Returns a small sample of rows from a table for quick inspection. Requires active JIT MCP access for that connection. This is read-only and capped by the backend. Use it to understand real data shape before proposing queries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -239,7 +239,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "execute_query",
     description:
-      "Executes a raw read-only SQL query against the specified connectionId and returns the result rows. The backend runs this in a PostgreSQL READ ONLY transaction, so INSERT/UPDATE/DELETE/TRUNCATE/DROP/DDL will fail. For any write or destructive operation, use request_write_operation instead.",
+      "Executes a raw read-only SQL query against the specified connectionId and returns the result rows. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. The backend runs this in a PostgreSQL READ ONLY transaction, so INSERT/UPDATE/DELETE/TRUNCATE/DROP/DDL will fail. For any write or destructive operation, use request_write_operation instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -261,7 +261,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_transaction_sandbox",
     description:
-      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '10s' and a forced ROLLBACK in all cases. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
+      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '10s' and a forced ROLLBACK in all cases. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
     inputSchema: {
       type: "object",
       properties: {
@@ -288,7 +288,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "request_write_operation",
     description:
-      "Creates a human approval request for a write or destructive SQL operation. Use this for any INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER, CREATE, or other mutation. After calling it, tell the user the approvalId and ask them to approve it physically in RelataSQL Settings > MCP. Do not attempt to execute the write until the user confirms approval and you have checked the approval status.",
+      "Creates a human approval request for a write or destructive SQL operation. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP before requesting approval. Use this for any INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER, CREATE, or other mutation. After calling it, tell the user the approvalId and ask them to approve it physically in RelataSQL Settings > MCP. Do not attempt to execute the write until the user confirms approval and you have checked the approval status.",
     inputSchema: {
       type: "object",
       properties: {
@@ -336,7 +336,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "execute_approved_operation",
     description:
-      "Executes a previously approved write operation by approvalId only. This tool never accepts SQL; RelataSQL reads the persisted SQL from the approval record, verifies it is APPROVED and UNUSED, marks it USED, then executes it once.",
+      "Executes a previously approved write operation by approvalId only. Requires active JIT MCP access for the approval's target connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP before execution. This tool never accepts SQL; RelataSQL reads the persisted SQL from the approval record, verifies it is APPROVED and UNUSED, marks it USED, then executes it once.",
     inputSchema: {
       type: "object",
       properties: {
