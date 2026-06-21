@@ -2,6 +2,7 @@
   "name": "relatasql-mcp",
   "version": "1.0.0",
   "description": "Official Model Context Protocol server for RelataSQL — lets LLM clients list database connections, inspect schemas, and execute SQL queries through a user's RelataSQL workspace.",
+  "mcpName": "io.github.relatasql/relatasql-mcp",
   "type": "module",
   "engines": {
     "node": ">=18"

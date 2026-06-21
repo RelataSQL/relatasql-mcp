@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.relatasql/relatasql-mcp",
+  "description": "Official MCP server for RelataSQL — list connections, inspect schemas, run read-only SQL, sandbox statements, and govern writes through your RelataSQL API key.",
+  "repository": {
+    "url": "https://github.com/RelataSQL/relatasql-mcp",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "relatasql-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RELATASQL_API_KEY",
+          "description": "Your RelataSQL API key (Settings -> API Keys, starts with relata_live_).",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "RELATASQL_API_URL",
+          "description": "Base URL of your RelataSQL backend, e.g. https://api.your-domain.com.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
