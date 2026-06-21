@@ -27,6 +27,14 @@
     "database"
   ],
   "license": "MIT",
+  "author": {
+    "name": "RelataLabs"
+  },
+  "homepage": "https://github.com/RelataSQL/relatasql-mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RelataSQL/relatasql-mcp.git"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "dotenv": "^16.4.5",
