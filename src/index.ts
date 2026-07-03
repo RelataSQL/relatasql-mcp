@@ -22,7 +22,7 @@ if (!apiKey || apiKey.trim().length === 0) {
 }
 
 const apiBaseUrl =
-  process.env.RELATASQL_API_URL?.trim() || "http://localhost:3000";
+  process.env.RELATASQL_API_URL?.trim() || "https://api.relatasql.com";
 
 const apiClient = new RelataApiClient(apiBaseUrl, apiKey);
 

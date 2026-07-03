@@ -6,12 +6,12 @@
     "url": "https://github.com/RelataSQL/relatasql-mcp",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "relatasql-mcp",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "transport": {
         "type": "stdio"
       },
@@ -25,7 +25,7 @@
         },
         {
           "name": "RELATASQL_API_URL",
-          "description": "Base URL of your RelataSQL backend, e.g. https://api.your-domain.com.",
+          "description": "RelataSQL API base URL. Defaults to the official cloud API (https://api.relatasql.com).",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

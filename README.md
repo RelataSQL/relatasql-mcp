@@ -9,7 +9,6 @@ human-approved writes — all through your RelataSQL **API key** (database passw
 
 - Node.js ≥ 18
 - A RelataSQL **API key** (web app → **Settings → API Keys**, starts with `relata_live_`)
-- Your RelataSQL backend base URL
 
 ## Configuration
 
@@ -18,7 +17,7 @@ Configured entirely via environment variables:
 | Variable | Required | Description |
 |---|---|---|
 | `RELATASQL_API_KEY` | yes | Your RelataSQL API key (`relata_live_…`) |
-| `RELATASQL_API_URL` | no (default `http://localhost:3000`) | Base URL of your RelataSQL backend, e.g. `https://api.your-domain.com` |
+| `RELATASQL_API_URL` | no (default `https://api.relatasql.com`) | RelataSQL API base URL. |
 
 ## Use with Claude Desktop
 
@@ -31,8 +30,7 @@ Edit `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/
       "command": "npx",
       "args": ["-y", "relatasql-mcp"],
       "env": {
-        "RELATASQL_API_KEY": "relata_live_xxx",
-        "RELATASQL_API_URL": "https://api.your-domain.com"
+        "RELATASQL_API_KEY": "relata_live_xxx"
       }
     }
   }
@@ -46,10 +44,14 @@ Then fully quit and reopen Claude Desktop.
 ```bash
 claude mcp add --transport stdio \
   --env RELATASQL_API_KEY=relata_live_xxx \
-  --env RELATASQL_API_URL=https://api.your-domain.com \
   --scope user \
   relatasql -- npx -y relatasql-mcp
 ```
+
+### Self-hosted / local backend
+
+Point the server at your own instance by adding `RELATASQL_API_URL` to the `env`
+block (e.g. `"RELATASQL_API_URL": "http://localhost:3000"`).
 
 ## Tools
 
