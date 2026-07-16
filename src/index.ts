@@ -261,7 +261,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_transaction_sandbox",
     description:
-      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '10s' and a forced ROLLBACK in all cases. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
+      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '60s' and a forced ROLLBACK in all cases. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
     inputSchema: {
       type: "object",
       properties: {
@@ -525,7 +525,7 @@ function describeError(err: unknown): string {
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // Stdout is reserved for the MCP wire protocol — any logging
+  // Stdout is reserved for the MCP wire protocol - any logging
   // that goes to stdout corrupts the JSON-RPC stream. Always log
   // to stderr.
   console.error(
