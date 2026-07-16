@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.relatasql/relatasql-mcp",
-  "description": "Official MCP server for RelataSQL — list connections, inspect schemas, run read-only SQL, sandbox statements, and govern writes through your RelataSQL API key.",
+  "description": "Official MCP server for RelataSQL - list connections, inspect schemas, run read-only SQL, sandbox statements, and govern writes through your RelataSQL API key.",
   "repository": {
     "url": "https://github.com/RelataSQL/relatasql-mcp",
     "source": "github"
