@@ -3,3 +3,7 @@ dist/
 *.log
 .env
 .env.local
+
+# Documentación y utilidades internas — este repositorio es público
+CLAUDE.md
+.githooks/
