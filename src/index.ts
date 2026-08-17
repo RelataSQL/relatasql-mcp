@@ -8,6 +8,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { RelataApiClient, RelataApiError } from "./relata-api-client.js";
+import {
+  parseDatabaseCapabilities,
+  withCapabilityDescriptions,
+  type DatabaseCapabilitiesCatalog,
+} from "./database-capabilities.js";
 
 // ---------- Startup validation ----------
 // The API key is mandatory. Crashing immediately (rather than
@@ -25,6 +30,34 @@ const apiBaseUrl =
   process.env.RELATASQL_API_URL?.trim() || "https://api.relatasql.com";
 
 const apiClient = new RelataApiClient(apiBaseUrl, apiKey);
+const CAPABILITIES_TTL_MS = 5 * 60 * 1000;
+let capabilitiesCache:
+  | { catalog: DatabaseCapabilitiesCatalog; expiresAt: number }
+  | undefined;
+let capabilitiesInFlight: Promise<DatabaseCapabilitiesCatalog> | undefined;
+
+async function loadCapabilities(): Promise<DatabaseCapabilitiesCatalog> {
+  const now = Date.now();
+  if (capabilitiesCache && capabilitiesCache.expiresAt > now) {
+    return capabilitiesCache.catalog;
+  }
+  if (capabilitiesInFlight) return capabilitiesInFlight;
+
+  capabilitiesInFlight = apiClient
+    .getDatabaseCapabilities()
+    .then(parseDatabaseCapabilities)
+    .then((catalog) => {
+      capabilitiesCache = {
+        catalog,
+        expiresAt: Date.now() + CAPABILITIES_TTL_MS,
+      };
+      return catalog;
+    })
+    .finally(() => {
+      capabilitiesInFlight = undefined;
+    });
+  return capabilitiesInFlight;
+}
 
 // ---------- Zod schemas for tool inputs ----------
 // Kept as plain ZodObjects so we can derive both the JSON Schema
@@ -393,7 +426,8 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools: TOOL_DEFINITIONS };
+  const catalog = await loadCapabilities();
+  return { tools: withCapabilityDescriptions(TOOL_DEFINITIONS, catalog) };
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
