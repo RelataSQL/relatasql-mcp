@@ -22,6 +22,23 @@ export interface RelataConnection {
   mcpGrantedUntil: string | null;
 }
 
+export interface RelataDatabaseCapabilities {
+  version: number;
+  engines: string[];
+  capabilities: string[];
+  cells: Array<{
+    engine: string;
+    capability: string;
+    status: string;
+    operations?: string[];
+    limitations?: string[];
+    rejectionCode?: string;
+    reason?: string;
+    ownerPlan?: string;
+    exitCriterion?: string;
+  }>;
+}
+
 export interface RelataColumn {
   name: string;
   dataType: string;
@@ -125,6 +142,10 @@ export class RelataApiClient {
 
   async listConnections(): Promise<RelataConnection[]> {
     return this.request<RelataConnection[]>("GET", "/mcp/connections");
+  }
+
+  async getDatabaseCapabilities(): Promise<RelataDatabaseCapabilities> {
+    return this.request<RelataDatabaseCapabilities>("GET", "/mcp/capabilities");
   }
 
   async getSchema(connectionId: string): Promise<RelataSchema> {

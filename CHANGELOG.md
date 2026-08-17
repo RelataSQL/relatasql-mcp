@@ -8,6 +8,11 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+### Changed
+- Tool descriptions now state the database engines currently supported by that exact operation,
+  using the live capability catalog returned by RelataSQL. Partial MySQL MCP support no longer
+  implies that schema, query, sandbox, or approval tools work with MySQL.
+
 ### Fixed
 - The `run_transaction_sandbox` tool description advertised a 10 s per-statement limit; the
   backend applies 60 s. Agents were working around a restriction that did not exist and
