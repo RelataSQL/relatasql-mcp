@@ -1,4 +1,7 @@
-export const DATABASE_CAPABILITIES_VERSION = 1 as const;
+export const DATABASE_CAPABILITIES_VERSION = 2 as const;
+export const SUPPORTED_DATABASE_CAPABILITIES_VERSIONS = [1, 2] as const;
+type DatabaseCapabilitiesVersion =
+  (typeof SUPPORTED_DATABASE_CAPABILITIES_VERSIONS)[number];
 
 type Engine = "postgres" | "mysql" | "mssql";
 type CapabilityStatus = "available" | "partial" | "blocked" | "not_offered";
@@ -11,7 +14,7 @@ type CapabilityCell = {
 };
 
 export type DatabaseCapabilitiesCatalog = {
-  version: typeof DATABASE_CAPABILITIES_VERSION;
+  version: DatabaseCapabilitiesVersion;
   engines: Engine[];
   capabilities: string[];
   cells: CapabilityCell[];
@@ -50,12 +53,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export function parseDatabaseCapabilities(
   value: unknown,
 ): DatabaseCapabilitiesCatalog {
-  if (!isRecord(value) || value.version !== DATABASE_CAPABILITIES_VERSION) {
+  if (
+    !isRecord(value) ||
+    !SUPPORTED_DATABASE_CAPABILITIES_VERSIONS.includes(
+      value.version as DatabaseCapabilitiesVersion,
+    )
+  ) {
     throw new Error(
       `Unsupported database capabilities version: ${String(isRecord(value) ? value.version : undefined)}`,
     );
   }
-  if (!Array.isArray(value.capabilities) || !value.capabilities.includes("mcp")) {
+  if (
+    !Array.isArray(value.capabilities) ||
+    !value.capabilities.includes("mcp")
+  ) {
     throw new Error("Database capabilities do not include MCP");
   }
   if (!Array.isArray(value.cells)) {
@@ -63,7 +74,8 @@ export function parseDatabaseCapabilities(
   }
 
   const cells = value.cells.map((candidate): CapabilityCell => {
-    if (!isRecord(candidate)) throw new Error("Invalid database capability cell");
+    if (!isRecord(candidate))
+      throw new Error("Invalid database capability cell");
     const engine = candidate.engine as Engine;
     const status = candidate.status as CapabilityStatus;
     if (!ENGINES.includes(engine)) {
@@ -78,7 +90,9 @@ export function parseDatabaseCapabilities(
     if (
       candidate.operations !== undefined &&
       (!Array.isArray(candidate.operations) ||
-        !candidate.operations.every((operation) => typeof operation === "string"))
+        !candidate.operations.every(
+          (operation) => typeof operation === "string",
+        ))
     ) {
       throw new Error(`Invalid capability operations for ${engine}`);
     }
@@ -90,12 +104,14 @@ export function parseDatabaseCapabilities(
       (cell) => cell.engine === engine && cell.capability === "mcp",
     );
     if (matches.length !== 1) {
-      throw new Error(`Database capabilities require exactly one ${engine} mcp cell`);
+      throw new Error(
+        `Database capabilities require exactly one ${engine} mcp cell`,
+      );
     }
   }
 
   return {
-    version: DATABASE_CAPABILITIES_VERSION,
+    version: value.version as DatabaseCapabilitiesVersion,
     engines: [...ENGINES],
     capabilities: [...value.capabilities] as string[],
     cells,

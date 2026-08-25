@@ -42,21 +42,42 @@ function replace(engine, capability, value) {
 replace("postgres", "mcp", { status: "available" });
 replace("mysql", "mcp", {
   status: "partial",
-  operations: ["list_connections", "create_dump", "backups"],
+  operations: [
+    "list_connections",
+    "get_schema",
+    "get_relations",
+    "sample_rows",
+    "execute_query",
+    "run_transaction_sandbox",
+    "request_write_operation",
+    "execute_approved_operation",
+    "create_dump",
+    "backups",
+  ],
   reason: "partial",
   ownerPlan: "MEGA-2026-003-P7",
   exitCriterion: "real tests",
 });
 replace("mssql", "mcp", {
   status: "partial",
-  operations: ["list_connections"],
+  operations: [
+    "list_connections",
+    "get_schema",
+    "get_relations",
+    "sample_rows",
+    "execute_query",
+    "run_transaction_sandbox",
+    "request_write_operation",
+    "execute_approved_operation",
+    "backups",
+  ],
   reason: "partial",
   ownerPlan: "MEGA-2026-003-P7",
   exitCriterion: "real tests",
 });
 
 const CATALOG = {
-  version: 1,
+  version: 2,
   engines: ENGINES,
   capabilities: CAPABILITIES,
   cells,
@@ -64,9 +85,11 @@ const CATALOG = {
 
 test("only advertises engines that support the specific public tool", () => {
   const catalog = parseDatabaseCapabilities(CATALOG);
-  assert.deepEqual(supportedEnginesForTool(catalog, "get_schema"), ["postgres"]);
+  assert.deepEqual(supportedEnginesForTool(catalog, "get_schema"), ENGINES);
   assert.deepEqual(supportedEnginesForTool(catalog, "execute_query"), [
     "postgres",
+    "mysql",
+    "mssql",
   ]);
   assert.deepEqual(supportedEnginesForTool(catalog, "list_connections"), [
     "postgres",
@@ -75,7 +98,7 @@ test("only advertises engines that support the specific public tool", () => {
   ]);
 });
 
-test("partial MCP support does not unlock unrelated tools", () => {
+test("partial MCP support unlocks only operations explicitly verified", () => {
   const catalog = parseDatabaseCapabilities(CATALOG);
   for (const tool of [
     "get_relations",
@@ -84,7 +107,7 @@ test("partial MCP support does not unlock unrelated tools", () => {
     "request_write_operation",
     "execute_approved_operation",
   ]) {
-    assert.equal(supportedEnginesForTool(catalog, tool).includes("mysql"), false);
+    assert.deepEqual(supportedEnginesForTool(catalog, tool), ENGINES);
   }
 });
 
@@ -92,7 +115,11 @@ test("tool descriptions state the live engine support", () => {
   const catalog = parseDatabaseCapabilities(CATALOG);
   const tools = withCapabilityDescriptions(
     [
-      { name: "get_schema", description: "Schema", inputSchema: { type: "object" } },
+      {
+        name: "get_schema",
+        description: "Schema",
+        inputSchema: { type: "object" },
+      },
       {
         name: "list_connections",
         description: "Connections",
@@ -101,16 +128,24 @@ test("tool descriptions state the live engine support", () => {
     ],
     catalog,
   );
-  assert.match(tools[0].description, /Supported engines: postgres\./);
+  assert.match(
+    tools[0].description,
+    /Supported engines: postgres, mysql, mssql\./,
+  );
   assert.match(
     tools[1].description,
     /Supported engines: postgres, mysql, mssql\./,
   );
 });
 
-test("rejects a version or matrix that cannot be verified", () => {
+test("accepts known additive versions and rejects unknown contracts", () => {
+  assert.equal(
+    parseDatabaseCapabilities({ ...CATALOG, version: 1 }).version,
+    1,
+  );
+  assert.equal(parseDatabaseCapabilities(CATALOG).version, 2);
   assert.throws(
-    () => parseDatabaseCapabilities({ ...CATALOG, version: 2 }),
+    () => parseDatabaseCapabilities({ ...CATALOG, version: 3 }),
     /version/i,
   );
   assert.throws(

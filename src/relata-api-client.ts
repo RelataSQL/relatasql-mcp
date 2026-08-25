@@ -20,6 +20,7 @@ export interface RelataConnection {
   workspaceName?: string;
   mcpAccessStatus: "ACTIVE" | "INACTIVE" | "EXPIRED" | "INDEFINITE";
   mcpGrantedUntil: string | null;
+  mcpOperations?: string[];
 }
 
 export interface RelataDatabaseCapabilities {

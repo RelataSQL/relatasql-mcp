@@ -9,11 +9,17 @@ Dates are npm publish dates.
 ## [Unreleased]
 
 ### Changed
+
+- PostgreSQL, MySQL and SQL Server now receive engine-specific tool descriptions from the live
+  capability catalog, including MySQL sandbox restrictions and per-connection operations.
+- The capability parser accepts both known additive catalog contracts (v1 and v2), so a backend
+  catalog upgrade no longer breaks `tools/list` before any database tool can run.
 - Tool descriptions now state the database engines currently supported by that exact operation,
   using the live capability catalog returned by RelataSQL. Partial MySQL MCP support no longer
   implies that schema, query, sandbox, or approval tools work with MySQL.
 
 ### Fixed
+
 - The `run_transaction_sandbox` tool description advertised a 10 s per-statement limit; the
   backend applies 60 s. Agents were working around a restriction that did not exist and
   discarding statements they could have run.
@@ -21,6 +27,7 @@ Dates are npm publish dates.
 ## [1.0.1] — 2026-07-03
 
 ### Changed
+
 - The credential now defaults to the official cloud API (`https://api.relatasql.com`).
   Self-hosting became the case you override explicitly instead of the default, which
   previously pointed at a local URL that was useless to anyone installing from npm.
@@ -28,6 +35,7 @@ Dates are npm publish dates.
 ## [1.0.0] — 2026-06-22
 
 ### Added
+
 - First public release, on npm and in the MCP Registry. Tools: `list_connections`,
   `get_schema`, `get_relations`, `sample_rows`, `execute_query` (read-only, run inside a
   read-only transaction server-side), `run_transaction_sandbox` (always rolled back), the
