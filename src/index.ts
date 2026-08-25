@@ -199,7 +199,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "list_connections",
     description:
-      "Retrieves all available database connections for the authenticated user. Call this first to get the connectionId. Each connection includes id, name, engine (postgres/mysql/mssql), host, port, databaseName, workspaceId, workspaceName, mcpAccessStatus and mcpGrantedUntil. If mcpAccessStatus is INACTIVE or EXPIRED, stop and ask the user to enable temporary access in RelataSQL Settings > MCP before using that connection.",
+      "Retrieves all available database connections for the authenticated user. Call this first to get the connectionId. Each connection includes its engine, JIT access status and mcpOperations supported by that exact engine. If mcpAccessStatus is INACTIVE or EXPIRED, stop and ask the user to enable temporary access in RelataSQL Settings > MCP before using that connection.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -254,7 +254,8 @@ const TOOL_DEFINITIONS = [
         },
         schema: {
           type: "string",
-          description: "Optional schema name. Defaults to public for PostgreSQL.",
+          description:
+            "Optional schema name. Defaults to public on PostgreSQL, the current database on MySQL, and dbo on SQL Server.",
         },
         table: {
           type: "string",
@@ -262,7 +263,8 @@ const TOOL_DEFINITIONS = [
         },
         limit: {
           type: "number",
-          description: "Maximum number of rows to return. Defaults to 10, max 50.",
+          description:
+            "Maximum number of rows to return. Defaults to 10, max 50.",
         },
       },
       required: ["connectionId", "table"],
@@ -272,7 +274,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "execute_query",
     description:
-      "Executes a raw read-only SQL query against the specified connectionId and returns the result rows. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. The backend runs this in a PostgreSQL READ ONLY transaction, so INSERT/UPDATE/DELETE/TRUNCATE/DROP/DDL will fail. For any write or destructive operation, use request_write_operation instead.",
+      "Executes SQL proven read-only for the selected PostgreSQL, MySQL, or SQL Server connection and returns result rows. RelataSQL classifies the engine-specific dialect before opening a database socket and wraps reads in the strongest read-only transaction that engine provides. Requires active JIT MCP access. For any write or destructive operation, use request_write_operation instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -294,7 +296,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_transaction_sandbox",
     description:
-      "Runs SQL inside a real PostgreSQL transaction with SET LOCAL statement_timeout = '60s' and a forced ROLLBACK in all cases. Requires active JIT MCP access for that connection; if RelataSQL returns [JIT_ACCESS_REQUIRED], stop and tell the user to enable the database in Settings > MCP. Use this to test or diagnose write/destructive operations without persisting table changes before requesting a real human-approved write. Important caveats: sequences/identity values can still advance, triggers will fire, locks can be taken temporarily, and this simulates direct SQL rather than an application's ORM flow. The result includes ok, rowCount, returned rows if any, and structured PostgreSQL error fields such as sqlState, detail, hint, constraint, table, schema and column.",
+      "Runs SQL in a transaction that RelataSQL always rolls back. PostgreSQL and SQL Server accept rollback-safe read, DML, and transactional DDL. MySQL accepts only DML after every affected table is verified as InnoDB; DDL, ADMIN, unknown tables, and non-transactional engines are rejected before execution because MySQL may commit them implicitly. Requires active JIT MCP access. Sequences/identity values may still advance, triggers fire, and locks can be held temporarily. The result includes structured engine error details.",
     inputSchema: {
       type: "object",
       properties: {
@@ -495,7 +497,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return toolJson(approval);
       }
       case "execute_approved_operation": {
-        const { approvalId } = ExecuteApprovedOperationInput.parse(rawArgs ?? {});
+        const { approvalId } = ExecuteApprovedOperationInput.parse(
+          rawArgs ?? {},
+        );
         const result = await apiClient.executeApprovedOperation(approvalId);
         return toolJson(result);
       }
@@ -504,8 +508,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await apiClient.submitTelemetry(feedback);
         return toolJson({
           status: "saved",
-          message:
-            "Telemetry saved. Thank you for helping improve RelataSQL!",
+          message: "Telemetry saved. Thank you for helping improve RelataSQL!",
         });
       }
       default:

@@ -14,10 +14,10 @@ human-approved writes — all through your RelataSQL **API key** (database passw
 
 Configured entirely via environment variables:
 
-| Variable | Required | Description |
-|---|---|---|
-| `RELATASQL_API_KEY` | yes | Your RelataSQL API key (`relata_live_…`) |
-| `RELATASQL_API_URL` | no (default `https://api.relatasql.com`) | RelataSQL API base URL. |
+| Variable            | Required                                 | Description                              |
+| ------------------- | ---------------------------------------- | ---------------------------------------- |
+| `RELATASQL_API_KEY` | yes                                      | Your RelataSQL API key (`relata_live_…`) |
+| `RELATASQL_API_URL` | no (default `https://api.relatasql.com`) | RelataSQL API base URL.                  |
 
 ## Use with Claude Desktop
 
@@ -69,7 +69,9 @@ block (e.g. `"RELATASQL_API_URL": "http://localhost:3000"`).
   RelataSQL web app (**Settings → MCP**); otherwise calls return `JIT_ACCESS_REQUIRED`. Choose an indefinite
   grant for unattended use.
 - **Read-only by default.** `execute_query` runs read-only; mutations go through the approval flow above.
-- **PostgreSQL** is supported for execution/schema in this version.
+- **PostgreSQL, MySQL and SQL Server** are supported per tool as reported by the live capability
+  catalog. MySQL sandbox is limited to DML on verified InnoDB tables; SQL Server native dumps are
+  not offered through the public tool set.
 
 ## License
 
