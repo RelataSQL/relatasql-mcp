@@ -70,8 +70,10 @@ block (e.g. `"RELATASQL_API_URL": "http://localhost:3000"`).
   grant for unattended use.
 - **Read-only by default.** `execute_query` runs read-only; mutations go through the approval flow above.
 - **PostgreSQL, MySQL and SQL Server** are supported per tool as reported by the live capability
-  catalog. MySQL sandbox is limited to DML on verified InnoDB tables; SQL Server native dumps are
-  not offered through the public tool set.
+  catalog. MySQL sandbox is limited to single-table DML on a trigger-free InnoDB target using
+  allowlisted built-ins, and requires `SELECT` metadata locking plus effective `TRIGGER`
+  visibility; multi-table `UPDATE`/`DELETE`, triggers, unverified functions and unprovable
+  permissions are rejected. SQL Server native dumps are not offered through the public tool set.
 
 ## License
 

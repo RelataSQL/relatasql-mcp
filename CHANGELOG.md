@@ -8,12 +8,17 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-25
+
 ### Changed
 
 - PostgreSQL, MySQL and SQL Server now receive engine-specific tool descriptions from the live
-  capability catalog, including MySQL sandbox restrictions and per-connection operations.
+  capability catalog, including MySQL single-table, trigger-free InnoDB sandbox restrictions and
+  per-connection operations.
 - The capability parser accepts both known additive catalog contracts (v1 and v2), so a backend
   catalog upgrade no longer breaks `tools/list` before any database tool can run.
+- Capability requests explicitly negotiate catalog v2; servers may safely keep returning the v1
+  projection to already-published 1.0.1 clients that send no version header.
 - Tool descriptions now state the database engines currently supported by that exact operation,
   using the live capability catalog returned by RelataSQL. Partial MySQL MCP support no longer
   implies that schema, query, sandbox, or approval tools work with MySQL.
@@ -43,6 +48,7 @@ Dates are npm publish dates.
   `execute_approved_operation`) and `submit_agent_feedback`.
 - Authentication through your RelataSQL API key. Database passwords never reach the client.
 
-[Unreleased]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.0.1...v1.1.0
 [1.0.1]: https://www.npmjs.com/package/relatasql-mcp/v/1.0.1
 [1.0.0]: https://www.npmjs.com/package/relatasql-mcp/v/1.0.0

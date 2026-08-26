@@ -40,6 +40,10 @@ export interface RelataDatabaseCapabilities {
   }>;
 }
 
+export const MCP_CAPABILITIES_VERSION_HEADER =
+  "X-RelataSQL-Capabilities-Version";
+export const MCP_CAPABILITIES_VERSION = "2";
+
 export interface RelataColumn {
   name: string;
   dataType: string;
@@ -146,7 +150,12 @@ export class RelataApiClient {
   }
 
   async getDatabaseCapabilities(): Promise<RelataDatabaseCapabilities> {
-    return this.request<RelataDatabaseCapabilities>("GET", "/mcp/capabilities");
+    return this.request<RelataDatabaseCapabilities>(
+      "GET",
+      "/mcp/capabilities",
+      undefined,
+      { [MCP_CAPABILITIES_VERSION_HEADER]: MCP_CAPABILITIES_VERSION },
+    );
   }
 
   async getSchema(connectionId: string): Promise<RelataSchema> {
@@ -219,11 +228,13 @@ export class RelataApiClient {
     method: "GET" | "POST",
     path: string,
     body?: unknown,
+    additionalHeaders: Readonly<Record<string, string>> = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
       Accept: "application/json",
+      ...additionalHeaders,
     };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
