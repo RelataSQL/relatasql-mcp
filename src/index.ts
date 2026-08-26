@@ -32,8 +32,7 @@ const apiBaseUrl =
 const apiClient = new RelataApiClient(apiBaseUrl, apiKey);
 const CAPABILITIES_TTL_MS = 5 * 60 * 1000;
 let capabilitiesCache:
-  | { catalog: DatabaseCapabilitiesCatalog; expiresAt: number }
-  | undefined;
+  { catalog: DatabaseCapabilitiesCatalog; expiresAt: number } | undefined;
 let capabilitiesInFlight: Promise<DatabaseCapabilitiesCatalog> | undefined;
 
 async function loadCapabilities(): Promise<DatabaseCapabilitiesCatalog> {
@@ -296,7 +295,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "run_transaction_sandbox",
     description:
-      "Runs SQL in a transaction that RelataSQL always rolls back. PostgreSQL and SQL Server accept rollback-safe read, DML, and transactional DDL. MySQL accepts only DML after every affected table is verified as InnoDB; DDL, ADMIN, unknown tables, and non-transactional engines are rejected before execution because MySQL may commit them implicitly. Requires active JIT MCP access. Sequences/identity values may still advance, triggers fire, and locks can be held temporarily. The result includes structured engine error details.",
+      "Runs SQL in a transaction that RelataSQL always rolls back. PostgreSQL and SQL Server accept rollback-safe read, DML, and transactional DDL. MySQL accepts only single-table DML on a trigger-free InnoDB target with allowlisted built-in functions after SELECT metadata locking and effective TRIGGER visibility are proven; multi-table UPDATE/DELETE, triggers, unverified functions, DDL, ADMIN, unknown tables, and unprovable permissions or engines are rejected. Requires active JIT MCP access. Sequences/identity values may still advance and locks can be held temporarily. The result includes structured engine error details.",
     inputSchema: {
       type: "object",
       properties: {
@@ -418,7 +417,7 @@ const TOOL_DEFINITIONS = [
 const server = new Server(
   {
     name: "relatasql-mcp",
-    version: "1.0.0",
+    version: "1.1.0",
   },
   {
     capabilities: {
