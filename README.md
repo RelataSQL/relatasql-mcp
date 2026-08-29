@@ -1,27 +1,29 @@
 # relatasql-mcp
 
-Official **Model Context Protocol (MCP)** server for [RelataSQL](https://relatasql.com). It lets MCP-compatible
-LLM clients (Claude Desktop, Claude Code, …) work with the databases in your RelataSQL workspace: list
-connections, inspect schemas, run read-only SQL, test statements in a rolled-back sandbox, and request
-human-approved writes — all through your RelataSQL **API key** (database passwords never reach the client).
+Official **Model Context Protocol (MCP)** server for [RelataSQL](https://relatasql.com). It lets MCP-compatible clients work with databases in a RelataSQL workspace while RelataSQL keeps database credentials, JIT access, SQL classification, sandboxing, approvals and audit authority.
 
-## Requirements
+The package supports two transports:
 
-- Node.js ≥ 18
-- A RelataSQL **API key** (web app → **Settings → API Keys**, starts with `relata_live_`)
+- **stdio** for local IDE/CLI clients. The process receives a RelataSQL API key.
+- **Streamable HTTP** for remote clients such as ChatGPT and other MCP hosts. Each request carries a user-scoped OAuth bearer token; the public server does **not** use a global RelataSQL API key.
 
-## Configuration
+Database passwords never reach the MCP client.
 
-Configured entirely via environment variables:
+## Local stdio mode
 
-| Variable            | Required                                 | Description                              |
-| ------------------- | ---------------------------------------- | ---------------------------------------- |
-| `RELATASQL_API_KEY` | yes                                      | Your RelataSQL API key (`relata_live_…`) |
-| `RELATASQL_API_URL` | no (default `https://api.relatasql.com`) | RelataSQL API base URL.                  |
+### Requirements
 
-## Use with Claude Desktop
+- Node.js >= 18
+- A RelataSQL API key from **Settings -> API Keys** (`relata_live_...`)
 
-Edit `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+### Environment
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `RELATASQL_API_KEY` | yes | RelataSQL API key used by this local process. |
+| `RELATASQL_API_URL` | no | Backend base URL; defaults to `https://api.relatasql.com`. |
+
+### Claude Desktop
 
 ```json
 {
@@ -37,9 +39,7 @@ Edit `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/
 }
 ```
 
-Then fully quit and reopen Claude Desktop.
-
-## Use with Claude Code
+### Claude Code
 
 ```bash
 claude mcp add --transport stdio \
@@ -48,32 +48,66 @@ claude mcp add --transport stdio \
   relatasql -- npx -y relatasql-mcp
 ```
 
-### Self-hosted / local backend
+## Remote Streamable HTTP mode
 
-Point the server at your own instance by adding `RELATASQL_API_URL` to the `env`
-block (e.g. `"RELATASQL_API_URL": "http://localhost:3000"`).
+The production endpoint is intended to be:
+
+```text
+https://mcp.relatasql.com/mcp
+```
+
+Remote mode is OAuth-only. A missing or invalid bearer token returns `401` with a `WWW-Authenticate` challenge pointing at the OAuth Protected Resource Metadata document. The authorization server is `https://api.relatasql.com`.
+
+### Environment
+
+```env
+RELATASQL_API_URL=https://api.relatasql.com
+RELATASQL_MCP_HOST=0.0.0.0
+RELATASQL_MCP_PORT=3003
+RELATASQL_MCP_PUBLIC_BASE_URL=https://mcp.relatasql.com
+RELATASQL_MCP_ALLOWED_HOSTS=mcp.relatasql.com
+```
+
+Do **not** set `RELATASQL_API_KEY` on the public service. OAuth bearer credentials are supplied by each MCP client and forwarded only to the RelataSQL backend for that request.
+
+### Endpoints
+
+- `POST /mcp` — OAuth-protected Streamable HTTP MCP endpoint
+- `GET /health` — deployment health/version probe
+- `GET /.well-known/oauth-protected-resource` — OAuth protected-resource metadata
+
+### Docker
+
+```bash
+docker build -t relatasql-mcp .
+docker run --rm -p 3003:3003 \
+  -e RELATASQL_MCP_PUBLIC_BASE_URL=https://mcp.relatasql.com \
+  -e RELATASQL_MCP_ALLOWED_HOSTS=mcp.relatasql.com \
+  relatasql-mcp
+```
 
 ## Tools
 
-- **list_connections** — database connections reachable with your API key
-- **get_schema** / **get_relations** — tables, columns and foreign keys for a connection
-- **sample_rows** — first N rows of a table
-- **execute_query** — run a read-only SQL query (`BEGIN READ ONLY`)
-- **run_transaction_sandbox** — execute SQL in a transaction that is always rolled back (safe test)
-- **request_write_operation** → **check_write_approval** → **execute_approved_operation** — governed write
-  flow: a human approves the exact statement in the RelataSQL web app before it runs
+- **list_connections** — connections visible to the authenticated user and their MCP/JIT access state
+- **get_schema** / **get_relations** — tables, columns and foreign keys
+- **sample_rows** — a backend-capped sample from a table
+- **execute_query** — SQL proven read-only by RelataSQL
+- **run_transaction_sandbox** — rollback-only simulation where the selected engine can prove safety
+- **request_write_operation** -> **check_write_approval** -> **execute_approved_operation** — governed write flow in which the exact statement is approved by a human before one-shot execution
+- **submit_agent_feedback** — sanitized end-of-task product feedback
 
-## Notes
+## Security model
 
-- **Enable access per connection.** Querying a connection requires you to enable MCP access for it in the
-  RelataSQL web app (**Settings → MCP**); otherwise calls return `JIT_ACCESS_REQUIRED`. Choose an indefinite
-  grant for unattended use.
-- **Read-only by default.** `execute_query` runs read-only; mutations go through the approval flow above.
-- **PostgreSQL, MySQL and SQL Server** are supported per tool as reported by the live capability
-  catalog. MySQL sandbox is limited to single-table DML on a trigger-free InnoDB target using
-  allowlisted built-ins, and requires `SELECT` metadata locking plus effective `TRIGGER`
-  visibility; multi-table `UPDATE`/`DELETE`, triggers, unverified functions and unprovable
-  permissions are rejected. SQL Server native dumps are not offered through the public tool set.
+- **Per-user identity.** Remote callers receive OAuth credentials scoped to the user who linked RelataSQL.
+- **Per-connection access.** A valid OAuth token does not automatically unlock a database; MCP/JIT access still has to be active for that connection.
+- **Read-only by default.** `execute_query` cannot become a write path just because the model asks it to.
+- **Governed writes.** Mutations continue through the existing RelataSQL approval flow; the remote MCP server does not duplicate or bypass it.
+- **Multi-engine fail-closed behavior.** PostgreSQL, MySQL and SQL Server support is derived from the live capability catalog. Unsupported operations are rejected before a database socket is opened.
+- **No shared production credential.** The remote container must not contain one user's API key.
+
+## Self-hosted backend
+
+Both transports can point at another RelataSQL backend with `RELATASQL_API_URL`. A remote deployment must also configure its public MCP URL and allowed Host values to match the external endpoint.
 
 ## License
 
