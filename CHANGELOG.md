@@ -8,6 +8,22 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-29
+
+### Added
+
+- A production Streamable HTTP entry point for remote MCP clients at `/mcp`, while retaining the
+  existing stdio transport for local IDE/CLI integrations.
+- OAuth Protected Resource Metadata and `WWW-Authenticate` discovery for user-scoped OAuth clients.
+- A `/health` endpoint, Docker image, host-header allowlist and CI coverage for the remote service.
+
+### Changed
+
+- MCP tool registration now lives in a shared server factory so stdio and remote transports expose
+  the same governed tool contract.
+- Remote requests use the caller's OAuth bearer token for the RelataSQL backend. The public MCP
+  container no longer needs or accepts a shared user's API key as its identity model.
+
 ## [1.1.0] - 2026-08-25
 
 ### Changed
@@ -48,7 +64,8 @@ Dates are npm publish dates.
   `execute_approved_operation`) and `submit_agent_feedback`.
 - Authentication through your RelataSQL API key. Database passwords never reach the client.
 
-[Unreleased]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/RelataSQL/relatasql-mcp/compare/v1.0.1...v1.1.0
 [1.0.1]: https://www.npmjs.com/package/relatasql-mcp/v/1.0.1
 [1.0.0]: https://www.npmjs.com/package/relatasql-mcp/v/1.0.0
