@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { RelataApiClient } from "./relata-api-client.js";
 import { createRelataMcpServer } from "./server.js";
 
-const apiKey = process.env.RELATASQL_API_KEY?.trim();
+const apiKey = process.env.RELATASQL_API_KEY?.trim() ?? "";
 if (!apiKey) {
   console.error(
     "[relatasql-mcp] FATAL: RELATASQL_API_KEY is required for stdio mode. Set it in your environment or .env file.",
