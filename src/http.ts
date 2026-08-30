@@ -4,7 +4,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { pathToFileURL } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { parseDatabaseCapabilities } from "./database-capabilities.js";
-import { RelataApiClient, RelataApiError } from "./relata-api-client.js";
+import {
+  RelataApiClient,
+  RelataApiError,
+  RelataApiTimeoutError,
+} from "./relata-api-client.js";
 import {
   createRelataMcpServer,
   RELATASQL_MCP_VERSION,
@@ -21,6 +25,28 @@ const publicBaseUrl = stripTrailingSlash(
 );
 const listenHost = process.env.RELATASQL_MCP_HOST?.trim() || "0.0.0.0";
 const listenPort = parsePort(process.env.RELATASQL_MCP_PORT, 3003);
+const maxRequestBytes = parseBoundedInteger(
+  process.env.RELATASQL_MCP_MAX_REQUEST_BYTES,
+  1024 * 1024,
+  16 * 1024,
+  4 * 1024 * 1024,
+);
+const apiTimeoutMs = parseBoundedInteger(
+  process.env.RELATASQL_API_TIMEOUT_MS,
+  75_000,
+  5_000,
+  120_000,
+);
+
+export class McpHttpBodyError extends Error {
+  constructor(
+    public readonly kind: "too_large" | "invalid_json" | "aborted",
+    message: string,
+  ) {
+    super(message);
+    this.name = "McpHttpBodyError";
+  }
+}
 
 export function extractBearerToken(
   authorization: string | string[] | undefined,
@@ -80,18 +106,68 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
   const token = extractBearerToken(req.headers.authorization);
   if (!token) return writeUnauthorized(res);
 
-  const apiClient = new RelataApiClient(apiBaseUrl, token);
+  const cancellation = new AbortController();
+  const onAborted = () => cancellation.abort();
+  const onClosed = () => {
+    if (!res.writableEnded) cancellation.abort();
+  };
+  req.once("aborted", onAborted);
+  res.once("close", onClosed);
+  const cleanupRequestListeners = () => {
+    req.off("aborted", onAborted);
+    res.off("close", onClosed);
+  };
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await readBoundedJsonBody(
+      req,
+      maxRequestBytes,
+      cancellation.signal,
+    );
+  } catch (error) {
+    cleanupRequestListeners();
+    if (error instanceof McpHttpBodyError && error.kind === "too_large") {
+      res.setHeader("Connection", "close");
+      writeJson(res, 413, {
+        jsonrpc: "2.0",
+        error: { code: -32001, message: "MCP request body is too large" },
+        id: null,
+      });
+      res.once("finish", () => req.destroy());
+      return;
+    }
+    if (error instanceof McpHttpBodyError && error.kind === "aborted") return;
+    return writeJson(res, 400, {
+      jsonrpc: "2.0",
+      error: { code: -32700, message: "Invalid JSON" },
+      id: null,
+    });
+  }
+
+  const apiClient = new RelataApiClient(apiBaseUrl, token, {
+    signal: cancellation.signal,
+    timeoutMs: apiTimeoutMs,
+  });
   let catalog;
   try {
     catalog = parseDatabaseCapabilities(
       await apiClient.getDatabaseCapabilities(),
     );
   } catch (error) {
+    cleanupRequestListeners();
     if (
       error instanceof RelataApiError &&
       (error.status === 401 || error.status === 403)
     ) {
       return writeUnauthorized(res);
+    }
+    if (cancellation.signal.aborted) return;
+    if (error instanceof RelataApiTimeoutError) {
+      return writeJson(res, 504, {
+        error: "gateway_timeout",
+        message: "RelataSQL API did not answer in time.",
+      });
     }
     console.error(
       "[relatasql-mcp-http] backend authentication/capability probe failed:",
@@ -121,7 +197,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
 
   try {
     await mcpServer.connect(transport);
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, parsedBody);
   } catch (error) {
     console.error("[relatasql-mcp-http] MCP request failed:", safeError(error));
     cleanup();
@@ -134,11 +210,13 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
     } else if (!res.writableEnded) {
       res.end();
     }
+  } finally {
+    cleanupRequestListeners();
   }
 }
 
 export function createRelataHttpServer() {
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const pathname = safePathname(req.url);
 
     if (req.method === "GET" && pathname === "/health") {
@@ -172,6 +250,81 @@ export function createRelataHttpServer() {
     }
 
     return writeJson(res, 404, { error: "not_found" });
+  });
+  server.requestTimeout = 15_000;
+  server.headersTimeout = 10_000;
+  server.keepAliveTimeout = 5_000;
+  return server;
+}
+
+/** Reads exactly one bounded JSON document before the SDK sees the request. */
+export function readBoundedJsonBody(
+  req: IncomingMessage,
+  limitBytes: number,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const declaredRaw = req.headers["content-length"];
+  const declared =
+    typeof declaredRaw === "string" && /^\d+$/u.test(declaredRaw)
+      ? Number.parseInt(declaredRaw, 10)
+      : null;
+  if (declared !== null && declared > limitBytes) {
+    return Promise.reject(
+      new McpHttpBodyError("too_large", "Declared body exceeds the limit"),
+    );
+  }
+  if (signal?.aborted || req.aborted) {
+    return Promise.reject(new McpHttpBodyError("aborted", "Request aborted"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let settled = false;
+    const cleanup = () => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+      req.off("aborted", onAbort);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const finish = (error?: Error, value?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const onAbort = () =>
+      finish(new McpHttpBodyError("aborted", "Request aborted"));
+    const onError = () => onAbort();
+    const onData = (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (bytes > limitBytes) {
+        req.pause();
+        finish(new McpHttpBodyError("too_large", "Body exceeds the limit"));
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = () => {
+      const raw = Buffer.concat(chunks, bytes).toString("utf8");
+      if (raw.trim().length === 0) {
+        finish(new McpHttpBodyError("invalid_json", "Empty JSON body"));
+        return;
+      }
+      try {
+        finish(undefined, JSON.parse(raw) as unknown);
+      } catch {
+        finish(new McpHttpBodyError("invalid_json", "Malformed JSON body"));
+      }
+    };
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("error", onError);
+    req.once("aborted", onAbort);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -215,6 +368,18 @@ function stripTrailingSlash(value: string): string {
 function parsePort(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535
+    ? parsed
+    : fallback;
+}
+
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum
     ? parsed
     : fallback;
 }

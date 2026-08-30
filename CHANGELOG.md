@@ -8,6 +8,13 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+### Security
+
+- Remote MCP requests now parse at most 1 MiB of JSON before tool dispatch, reject oversized
+  `Content-Length` and chunked bodies, and use short HTTP receive deadlines.
+- Closing a remote MCP request now cancels its RelataSQL API calls; every backend trip also has a
+  75-second ceiling, above the governed 60-second SQL limit, so abandoned work cannot run forever.
+
 ## [1.2.0] - 2026-08-29
 
 ### Added
