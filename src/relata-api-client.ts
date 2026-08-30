@@ -134,15 +134,37 @@ export class RelataApiError extends Error {
   }
 }
 
+export class RelataApiTimeoutError extends Error {
+  constructor(public readonly timeoutMs: number) {
+    super(`RelataSQL API request exceeded ${timeoutMs} ms`);
+    this.name = "RelataApiTimeoutError";
+  }
+}
+
+export interface RelataApiClientOptions {
+  /** Cancels every backend trip that belongs to the current MCP request. */
+  signal?: AbortSignal;
+  /** Per-trip ceiling. It must remain above the backend's 60 s SQL limit. */
+  timeoutMs?: number;
+}
+
 export class RelataApiClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly signal?: AbortSignal;
+  private readonly timeoutMs: number;
 
-  constructor(baseUrl: string, apiKey: string) {
+  constructor(
+    baseUrl: string,
+    apiKey: string,
+    options: RelataApiClientOptions = {},
+  ) {
     // Strip a trailing slash so path concatenation stays predictable
     // regardless of how the env var was written.
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey;
+    this.signal = options.signal;
+    this.timeoutMs = options.timeoutMs ?? 75_000;
   }
 
   async listConnections(): Promise<RelataConnection[]> {
@@ -240,11 +262,23 @@ export class RelataApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const request = this.requestSignal();
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: request.signal,
+      });
+    } catch (error) {
+      if (request.didTimeout()) {
+        throw new RelataApiTimeoutError(this.timeoutMs);
+      }
+      throw error;
+    } finally {
+      request.dispose();
+    }
 
     // Read once and try to parse — the backend returns JSON for
     // both success and error paths, but we don't want to crash on
@@ -271,5 +305,32 @@ export class RelataApiClient {
     }
 
     return parsed as T;
+  }
+
+  private requestSignal(): {
+    signal: AbortSignal;
+    didTimeout: () => boolean;
+    dispose: () => void;
+  } {
+    const controller = new AbortController();
+    let timedOut = false;
+    const relayAbort = () => controller.abort(this.signal?.reason);
+    if (this.signal?.aborted) {
+      relayAbort();
+    } else {
+      this.signal?.addEventListener("abort", relayAbort, { once: true });
+    }
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new DOMException("RelataSQL API timeout", "TimeoutError"));
+    }, this.timeoutMs);
+    return {
+      signal: controller.signal,
+      didTimeout: () => timedOut,
+      dispose: () => {
+        clearTimeout(timer);
+        this.signal?.removeEventListener("abort", relayAbort);
+      },
+    };
   }
 }
