@@ -8,6 +8,10 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+### Changed
+
+- The npm package is now published under the canonical RelataLabs name `@relatalabs/relatasql-mcp`; the existing CLI command names remain unchanged.
+
 ### Security
 
 - Remote MCP requests now parse at most 1 MiB of JSON before tool dispatch, reject oversized
