@@ -30,7 +30,7 @@ Database passwords never reach the MCP client.
   "mcpServers": {
     "relatasql": {
       "command": "npx",
-      "args": ["-y", "relatasql-mcp"],
+      "args": ["-y", "@relatalabs/relatasql-mcp"],
       "env": {
         "RELATASQL_API_KEY": "relata_live_xxx"
       }
@@ -45,7 +45,7 @@ Database passwords never reach the MCP client.
 claude mcp add --transport stdio \
   --env RELATASQL_API_KEY=relata_live_xxx \
   --scope user \
-  relatasql -- npx -y relatasql-mcp
+  relatasql -- npx -y @relatalabs/relatasql-mcp
 ```
 
 ## Remote Streamable HTTP mode
