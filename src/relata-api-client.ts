@@ -123,14 +123,130 @@ export interface RelataApproval {
   executionError: string | null;
 }
 
+/** Schema discovery (paged schemas, tables, table detail and foreign keys). */
+export interface RelataDiscoveryPage {
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface RelataSchemaSummary {
+  name: string;
+  tableCount: number;
+  viewCount: number;
+}
+
+export interface RelataSchemasResult {
+  connectionId: string;
+  engine: string;
+  serverVersion: string | null;
+  defaultSchema: string;
+  filter: { query: string };
+  schemas: RelataSchemaSummary[];
+  page: RelataDiscoveryPage;
+}
+
+export interface RelataTableSummary {
+  schema: string;
+  name: string;
+  kind: "table" | "view";
+  columnCount: number;
+}
+
+export interface RelataTablesResult {
+  connectionId: string;
+  engine: string;
+  serverVersion: string | null;
+  filter: { schema: string | null; query: string; schemaFound?: boolean };
+  tables: RelataTableSummary[];
+  page: RelataDiscoveryPage & { totalMatches: number };
+}
+
+/** One whole foreign key; composite keys keep their columns in order. */
+export interface RelataForeignKey {
+  key: [fromSchema: string, fromTable: string, constraintName: string];
+  constraintName: string;
+  fromSchema: string;
+  fromTable: string;
+  fromColumns: string[];
+  toSchema: string;
+  toTable: string;
+  toColumns: string[];
+  onUpdate: string | null;
+  onDelete: string | null;
+}
+
+export interface RelataTableDetailResult {
+  connectionId: string;
+  engine: string;
+  serverVersion: string | null;
+  table: {
+    schema: string;
+    name: string;
+    kind: "table" | "view";
+    columns: Array<RelataColumn & { defaultValue: string | null }>;
+    primaryKey: string[];
+    uniqueConstraints: Array<{ name: string; columns: string[] }>;
+  };
+  relations: {
+    outgoing: RelataForeignKey[];
+    incoming: RelataForeignKey[];
+    outgoingHasMore: boolean;
+    incomingHasMore: boolean;
+  };
+}
+
+export type RelataRelationDirection = "outgoing" | "incoming" | "both";
+
+export interface RelataRelationsPageResult {
+  connectionId: string;
+  engine: string;
+  filter: {
+    schema: string | null;
+    table: string | null;
+    direction: RelataRelationDirection;
+  };
+  relations: RelataForeignKey[];
+  page: RelataDiscoveryPage;
+}
+
+/**
+ * Header the backend sets on every response of its schema discovery routes,
+ * errors included. A 404 without it means the route itself is missing (an
+ * older or rolled-back backend), not that a table does not exist.
+ */
+export const SCHEMA_DISCOVERY_HEADER = "x-relatasql-schema-discovery";
+
 export class RelataApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
     public readonly body: unknown,
+    /** Response headers, lower-cased. */
+    public readonly headers: Readonly<Record<string, string>> = {},
   ) {
     super(message);
     this.name = "RelataApiError";
+  }
+}
+
+/** The backend does not serve the schema discovery routes. */
+export class SchemaDiscoveryUnsupportedError extends Error {
+  constructor() {
+    super(
+      "SCHEMA_DISCOVERY_UNSUPPORTED: this RelataSQL server does not support get_schema discovery arguments yet. Call get_schema with only connectionId.",
+    );
+    this.name = "SchemaDiscoveryUnsupportedError";
+  }
+}
+
+/** The backend answered for another table, schema or connection. */
+export class RelataEchoMismatchError extends Error {
+  constructor(what: string) {
+    super(
+      `RelataSQL answered for a different ${what} than the one requested; the answer was discarded.`,
+    );
+    this.name = "RelataEchoMismatchError";
   }
 }
 
@@ -238,12 +354,126 @@ export class RelataApiClient {
     return this.request<RelataQueryResult>("POST", path);
   }
 
+  async listSchemas(
+    connectionId: string,
+    params: { query?: string; limit?: number; cursor?: string },
+  ): Promise<RelataSchemasResult> {
+    const result = await this.discovery<RelataSchemasResult>(
+      connectionId,
+      "schemas",
+      params,
+    );
+    this.assertConnection(result, connectionId);
+    return result;
+  }
+
+  async listTables(
+    connectionId: string,
+    params: { schema?: string; query?: string; limit?: number; cursor?: string },
+  ): Promise<RelataTablesResult> {
+    const result = await this.discovery<RelataTablesResult>(
+      connectionId,
+      "schema/tables",
+      params,
+    );
+    this.assertConnection(result, connectionId);
+    if (params.schema !== undefined && result.filter?.schema !== params.schema) {
+      throw new RelataEchoMismatchError("schema");
+    }
+    return result;
+  }
+
+  async describeTable(
+    connectionId: string,
+    params: { schema?: string; table: string },
+  ): Promise<RelataTableDetailResult> {
+    const result = await this.discovery<RelataTableDetailResult>(
+      connectionId,
+      "schema/tables/detail",
+      params,
+    );
+    this.assertConnection(result, connectionId);
+    if (
+      result.table?.name !== params.table ||
+      (params.schema !== undefined && result.table?.schema !== params.schema)
+    ) {
+      throw new RelataEchoMismatchError("table");
+    }
+    return result;
+  }
+
+  async getRelationsPage(
+    connectionId: string,
+    params: {
+      schema?: string;
+      table?: string;
+      direction?: RelataRelationDirection;
+      limit?: number;
+      cursor?: string;
+    },
+  ): Promise<RelataRelationsPageResult> {
+    const result = await this.discovery<RelataRelationsPageResult>(
+      connectionId,
+      "relations/page",
+      params,
+    );
+    this.assertConnection(result, connectionId);
+    const filter = result.filter;
+    if (
+      (params.schema !== undefined && filter?.schema !== params.schema) ||
+      (params.table !== undefined && filter?.table !== params.table) ||
+      (params.direction !== undefined && filter?.direction !== params.direction)
+    ) {
+      throw new RelataEchoMismatchError("filter");
+    }
+    return result;
+  }
+
   async submitTelemetry(payload: {
     objective: string;
     relataContribution: string;
     missingFeatures: string;
   }): Promise<{ message: string }> {
     return this.request<{ message: string }>("POST", "/mcp/telemetry", payload);
+  }
+
+  /**
+   * GET on a schema discovery route. Only defined values travel in the query
+   * string. A 404 without the discovery header is a missing route, reported
+   * as SchemaDiscoveryUnsupportedError instead of "not found".
+   */
+  private async discovery<T>(
+    connectionId: string,
+    route: string,
+    params: Readonly<Record<string, string | number | undefined>>,
+  ): Promise<T> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) query.set(key, String(value));
+    }
+    const search = query.toString();
+    const path = `/mcp/connections/${encodeURIComponent(connectionId)}/${route}${search ? `?${search}` : ""}`;
+    try {
+      return await this.request<T>("GET", path);
+    } catch (error) {
+      if (
+        error instanceof RelataApiError &&
+        error.status === 404 &&
+        error.headers[SCHEMA_DISCOVERY_HEADER] === undefined
+      ) {
+        throw new SchemaDiscoveryUnsupportedError();
+      }
+      throw error;
+    }
+  }
+
+  private assertConnection(
+    result: { connectionId?: unknown },
+    connectionId: string,
+  ): void {
+    if (result?.connectionId !== connectionId) {
+      throw new RelataEchoMismatchError("connection");
+    }
   }
 
   private async request<T>(
@@ -301,7 +531,12 @@ export class RelataApiClient {
           message = m;
         }
       }
-      throw new RelataApiError(message, response.status, parsed);
+      throw new RelataApiError(
+        message,
+        response.status,
+        parsed,
+        headersOf(response),
+      );
     }
 
     return parsed as T;
@@ -333,4 +568,16 @@ export class RelataApiClient {
       },
     };
   }
+}
+
+/** Lower-cased response headers (test doubles may omit them). */
+function headersOf(response: Response): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const source = (response as { headers?: Headers }).headers;
+  if (source && typeof source.forEach === "function") {
+    source.forEach((value, key) => {
+      headers[key.toLowerCase()] = value;
+    });
+  }
+  return headers;
 }

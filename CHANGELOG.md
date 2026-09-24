@@ -8,9 +8,26 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+### Added
+
+- `get_schema` and `get_relations` accept optional discovery arguments for databases with many
+  schemas: list schemas with their table counts, list or search tables page by page, read one
+  table's columns, keys and incoming/outgoing foreign keys, and page through whole foreign keys
+  (composite keys stay together). A missing table reports where a table with that name exists.
+  Calls with only `connectionId` behave exactly as before.
+- Discovery arguments are sent only to servers whose capability catalog lists
+  `schema_discovery_v1`; older servers get an explicit `SCHEMA_DISCOVERY_UNSUPPORTED` error
+  instead of a silently unfiltered answer, and responses for another table, schema or connection
+  are discarded.
+
 ### Changed
 
 - The npm package is now published under the canonical RelataLabs name `@relatalabs/relatasql-mcp`; the existing CLI command names remain unchanged.
+
+### Fixed
+
+- Tool errors now include the RelataSQL error code (for example `MCP_TABLE_NOT_FOUND`) next to
+  the HTTP status, so agents can tell a missing table from a permission problem.
 
 ### Security
 
