@@ -16,7 +16,7 @@ import {
   type DatabaseCapabilitiesCatalog,
 } from "./database-capabilities.js";
 
-export const RELATASQL_MCP_VERSION = "1.2.0";
+export const RELATASQL_MCP_VERSION = "1.3.0";
 const CAPABILITIES_TTL_MS = 5 * 60 * 1000;
 
 /** An existing schema or table name: 1 to 128 characters, used verbatim. */

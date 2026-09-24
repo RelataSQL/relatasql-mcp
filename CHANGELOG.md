@@ -8,6 +8,8 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-24
+
 ### Added
 
 - `get_schema` and `get_relations` accept optional discovery arguments for databases with many
@@ -23,6 +25,8 @@ Dates are npm publish dates.
 ### Changed
 
 - The npm package is now published under the canonical RelataLabs name `@relatalabs/relatasql-mcp`; the existing CLI command names remain unchanged.
+- The MCP Registry entry (`server.json`) now points at `@relatalabs/relatasql-mcp`, the package
+  that is actually published, and every release file carries the same version.
 
 ### Fixed
 
