@@ -125,7 +125,7 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           maxLength: QUERY_MAX,
           description:
-            "Case-insensitive text contained in schema names (mode schemas) or in schema.table (mode tables).",
+            "Case-insensitive text contained in schema names (mode schemas) or in schema.table (mode tables). Not accepted with table.",
         },
         table: {
           type: "string",
@@ -137,7 +137,8 @@ export const TOOL_DEFINITIONS = [
           type: "integer",
           minimum: 1,
           maximum: PAGE_MAX,
-          description: "Page size. Defaults to 100 schemas or 50 tables.",
+          description:
+            "Page size of a listing, not accepted with table. Defaults to 100 schemas or 50 tables.",
         },
         cursor: {
           type: "string",
@@ -533,7 +534,9 @@ export function createRelataMcpServer(
 function schemaDiscoveryTarget(input: {
   mode?: "schemas" | "tables" | "table";
   schema?: string;
+  query?: string;
   table?: string;
+  limit?: number;
   cursor?: string;
 }): "schemas" | "tables" | "table" | "continue" {
   const invalid = (message: string) =>
@@ -551,6 +554,13 @@ function schemaDiscoveryTarget(input: {
     }
     if (input.cursor !== undefined) {
       throw invalid('mode "table" is not paged; do not send cursor');
+    }
+    // A detail is one exact table: a search text or a page size would be
+    // silently ignored, and the agent would believe it filtered something.
+    if (input.query !== undefined || input.limit !== undefined) {
+      throw invalid(
+        'mode "table" reads one table; it takes only schema and table, not query or limit',
+      );
     }
   } else if (input.table !== undefined) {
     throw invalid(`mode "${target}" does not take table`);

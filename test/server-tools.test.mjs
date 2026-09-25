@@ -305,6 +305,29 @@ test("contradictory get_schema arguments are rejected before any backend call", 
   assert.deepEqual(calls, []);
 });
 
+test("a table's detail rejects query and limit instead of dropping them", async (t) => {
+  const { client, calls } = await connect(t, () =>
+    jsonResponse(200, DISCOVERY),
+  );
+
+  for (const extra of [
+    { query: "stud" },
+    { limit: 5 },
+    { mode: "table", query: "" },
+  ]) {
+    const result = await client.callTool({
+      name: "get_schema",
+      arguments: { connectionId: "c1", table: "students", ...extra },
+    });
+
+    // Nothing reaches RelataSQL: before, the detail was requested without
+    // the query or the limit the agent sent.
+    assert.deepEqual(calls, [], JSON.stringify(extra));
+    assert.equal(result.isError, true);
+    assert.match(text(result).error, /not query or limit/);
+  }
+});
+
 test("tools/list advertises the discovery arguments with their bounds", async (t) => {
   const { client } = await connect(t, () => jsonResponse(200, DISCOVERY));
 

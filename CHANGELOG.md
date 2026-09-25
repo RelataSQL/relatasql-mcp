@@ -20,6 +20,8 @@ Dates are npm publish dates.
 - Sending only `connectionId` and a listing's `cursor` to `get_schema` continues that listing,
   schemas or tables, and the page says which in `listing`; a `cursor` sent with a `mode` still
   has to come from that mode's listing.
+- A table's detail (`get_schema` with `table`) takes only `schema` and `table`: a `query`,
+  `limit` or `cursor` sent with it is rejected instead of silently ignored.
 - Discovery arguments are sent only to servers whose capability catalog lists
   `schema_discovery_v1`; older servers get an explicit `SCHEMA_DISCOVERY_UNSUPPORTED` error
   instead of a silently unfiltered answer, and responses for another table, schema or connection
