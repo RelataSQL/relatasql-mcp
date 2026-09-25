@@ -3,7 +3,7 @@ export const SUPPORTED_DATABASE_CAPABILITIES_VERSIONS = [1, 2] as const;
 type DatabaseCapabilitiesVersion =
   (typeof SUPPORTED_DATABASE_CAPABILITIES_VERSIONS)[number];
 
-type Engine = "postgres" | "mysql" | "mssql";
+export type Engine = "postgres" | "mysql" | "mssql";
 type CapabilityStatus = "available" | "partial" | "blocked" | "not_offered";
 
 type CapabilityCell = {
@@ -46,6 +46,20 @@ const TOOL_MCP_OPERATION: Readonly<Record<string, string | null>> = {
   execute_approved_operation: "execute_approved_operation",
   submit_agent_feedback: null,
 };
+
+/**
+ * Marker the RelataSQL backend lists in its `mcp` capability cells when it
+ * serves the schema discovery routes (paged schemas, tables, table detail and
+ * foreign keys). It is not a tool: get_schema and get_relations only accept
+ * their discovery arguments where this marker is listed.
+ */
+export const SCHEMA_DISCOVERY_OPERATION = "schema_discovery_v1";
+
+/** The tools whose optional arguments depend on schema discovery. */
+const SCHEMA_DISCOVERY_TOOLS: ReadonlySet<string> = new Set([
+  "get_schema",
+  "get_relations",
+]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -139,16 +153,61 @@ export function supportedEnginesForTool(
   });
 }
 
+/**
+ * True only when the capability cell exists, is available or partial, and
+ * lists the operation explicitly. Unlike tool support, an `available` cell
+ * does NOT imply every operation: new markers only count when they are written
+ * in the catalog, so an older backend can never be mistaken for a newer one.
+ */
+export function operationExplicitlyListed(
+  catalog: DatabaseCapabilitiesCatalog,
+  capability: string,
+  engine: Engine,
+  operation: string,
+): boolean {
+  const cell = catalog.cells.find(
+    (candidate) =>
+      candidate.engine === engine && candidate.capability === capability,
+  );
+  return (
+    cell !== undefined &&
+    (cell.status === "available" || cell.status === "partial") &&
+    (cell.operations?.includes(operation) ?? false)
+  );
+}
+
+/** Engines whose MCP cell explicitly lists schema discovery. */
+export function schemaDiscoveryEngines(
+  catalog: DatabaseCapabilitiesCatalog,
+): Engine[] {
+  return ENGINES.filter((engine) =>
+    operationExplicitlyListed(
+      catalog,
+      "mcp",
+      engine,
+      SCHEMA_DISCOVERY_OPERATION,
+    ),
+  );
+}
+
 export function withCapabilityDescriptions<T extends ToolDefinition>(
   tools: readonly T[],
   catalog: DatabaseCapabilitiesCatalog,
 ): Array<T & { description: string }> {
+  const discovery = schemaDiscoveryEngines(catalog);
   return tools.map((tool) => {
     const engines = supportedEnginesForTool(catalog, tool.name);
-    const support = `Supported engines: ${engines.join(", ")}.`;
-    return {
-      ...tool,
-      description: `${tool.description?.trim() ?? ""} ${support}`.trim(),
-    };
+    const parts = [
+      tool.description?.trim() ?? "",
+      `Supported engines: ${engines.join(", ")}.`,
+    ];
+    if (SCHEMA_DISCOVERY_TOOLS.has(tool.name)) {
+      parts.push(
+        discovery.length > 0
+          ? `Discovery arguments available on: ${discovery.join(", ")}.`
+          : "Discovery arguments are not available on this RelataSQL server; call with only connectionId.",
+      );
+    }
+    return { ...tool, description: parts.join(" ").trim() };
   });
 }

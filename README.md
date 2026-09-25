@@ -89,12 +89,31 @@ docker run --rm -p 3003:3003 \
 ## Tools
 
 - **list_connections** — connections visible to the authenticated user and their MCP/JIT access state
-- **get_schema** / **get_relations** — tables, columns and foreign keys
+- **get_schema** / **get_relations** — tables, columns and foreign keys (see *Schema discovery* below)
 - **sample_rows** — a backend-capped sample from a table
 - **execute_query** — SQL proven read-only by RelataSQL
 - **run_transaction_sandbox** — rollback-only simulation where the selected engine can prove safety
 - **request_write_operation** -> **check_write_approval** -> **execute_approved_operation** — governed write flow in which the exact statement is approved by a human before one-shot execution
 - **submit_agent_feedback** — sanitized end-of-task product feedback
+
+## Schema discovery
+
+With only `connectionId`, `get_schema` returns every table of the database and
+`get_relations` every foreign-key column, exactly as before. On databases with
+many schemas, both tools accept optional arguments that page through the
+catalog instead:
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `get_schema` | `mode: "schemas"`, `query?`, `limit?` (1-200), `cursor?` | Schemas with their table and view counts, and the default schema. |
+| `get_schema` | `schema?`, `query?`, `limit?` (1-200), `cursor?` | Tables of one schema, or tables whose `schema.table` contains `query` in any schema. |
+| `get_schema` | `table`, `schema?` | One table: columns, primary key, unique constraints and outgoing/incoming foreign keys. If it does not exist, the error lists the schemas where a table with that name exists (`candidates`). |
+| `get_relations` | `schema?`, `table?`, `direction?` (`outgoing`, `incoming`, `both`), `limit?`, `cursor?` | Whole foreign keys (composite keys keep their columns in order), page by page. |
+
+- Pass `schema` and `table` as separate arguments; names are used verbatim and are never split on dots.
+- A table without `schema` means the engine's default schema (`public`, `dbo`, or the connected MySQL database). In MySQL the only schema is the connected database.
+- Continue a listing by sending only `page.nextCursor` (with `connectionId`): the server continues whichever listing, schemas or tables, the cursor came from, and says which in `listing`. A cursor sent with a `mode` must belong to that mode's listing. Cursors survive schema changes between pages.
+- Discovery arguments need a RelataSQL server that lists `schema_discovery_v1` in its capability catalog. Against an older server the tools return `SCHEMA_DISCOVERY_UNSUPPORTED` without calling it; call them with only `connectionId` there.
 
 ## Security model
 

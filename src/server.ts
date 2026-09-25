@@ -4,20 +4,58 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { RelataApiClient, RelataApiError } from "./relata-api-client.js";
+import {
+  RelataApiClient,
+  RelataApiError,
+  SchemaDiscoveryUnsupportedError,
+} from "./relata-api-client.js";
 import {
   parseDatabaseCapabilities,
+  schemaDiscoveryEngines,
   withCapabilityDescriptions,
   type DatabaseCapabilitiesCatalog,
 } from "./database-capabilities.js";
 
-export const RELATASQL_MCP_VERSION = "1.2.0";
+export const RELATASQL_MCP_VERSION = "1.3.0";
 const CAPABILITIES_TTL_MS = 5 * 60 * 1000;
+
+/** An existing schema or table name: 1 to 128 characters, used verbatim. */
+const IDENTIFIER_MAX = 128;
+const QUERY_MAX = 120;
+const PAGE_MAX = 200;
+const CURSOR_MAX = 4096;
+const identifier = (field: string) =>
+  z
+    .string()
+    .min(1, `${field} must not be empty`)
+    .max(IDENTIFIER_MAX, `${field} is limited to ${IDENTIFIER_MAX} characters`);
+const pageLimit = z.number().int().min(1).max(PAGE_MAX);
+const cursor = z.string().min(1).max(CURSOR_MAX);
 
 const GetSchemaInput = z.object({
   connectionId: z.string().min(1, "connectionId is required"),
+  mode: z.enum(["schemas", "tables", "table"]).optional(),
+  schema: identifier("schema").optional(),
+  query: z.string().max(QUERY_MAX).optional(),
+  table: identifier("table").optional(),
+  limit: pageLimit.optional(),
+  cursor: cursor.optional(),
 });
-const GetRelationsInput = GetSchemaInput;
+const GetRelationsInput = z.object({
+  connectionId: z.string().min(1, "connectionId is required"),
+  schema: identifier("schema").optional(),
+  table: identifier("table").optional(),
+  direction: z.enum(["outgoing", "incoming", "both"]).optional(),
+  limit: pageLimit.optional(),
+  cursor: cursor.optional(),
+});
+
+/** get_schema/get_relations arguments beyond connectionId. */
+const hasDiscoveryArguments = (input: Record<string, unknown>) =>
+  Object.entries(input).some(
+    ([key, value]) => key !== "connectionId" && value !== undefined,
+  );
+
 const ExecuteQueryInput = z.object({
   connectionId: z.string().min(1, "connectionId is required"),
   sql: z.string().min(1, "sql is required"),
@@ -62,13 +100,51 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_schema",
     description:
-      "Retrieves tables, columns, types, nullability and primary keys for a connection. Requires active per-connection MCP/JIT access. Use it before writing SQL when the structure is not already known.",
+      "Retrieves tables, columns, types, nullability and primary keys for a connection. Requires active per-connection MCP/JIT access. With only connectionId it returns the whole database at once. On databases with many schemas, use the discovery arguments instead: mode \"schemas\" lists schemas with their table counts; schema and/or query list tables page by page; table (with schema) returns one table's columns, keys and incoming/outgoing foreign keys, or where a table with that name exists. Pass schema and table as separate arguments and never join them with a dot. Continue a listing by sending only its nextCursor.",
     inputSchema: {
       type: "object",
       properties: {
         connectionId: {
           type: "string",
           description: "Connection id returned by list_connections.",
+        },
+        mode: {
+          type: "string",
+          enum: ["schemas", "tables", "table"],
+          description:
+            "schemas: list schemas; tables: list tables (the default when schema or query is given); table: one table's detail (the default when table is given). Without mode, a cursor continues the listing it came from.",
+        },
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: IDENTIFIER_MAX,
+          description:
+            "Exact schema name. For tables it filters the listing; for a table it defaults to the engine's default schema (public, dbo or the connected MySQL database).",
+        },
+        query: {
+          type: "string",
+          maxLength: QUERY_MAX,
+          description:
+            "Case-insensitive text contained in schema names (mode schemas) or in schema.table (mode tables). Not accepted with table.",
+        },
+        table: {
+          type: "string",
+          minLength: 1,
+          maxLength: IDENTIFIER_MAX,
+          description: "Exact table name, without its schema.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: PAGE_MAX,
+          description:
+            "Page size of a listing, not accepted with table. Defaults to 100 schemas or 50 tables.",
+        },
+        cursor: {
+          type: "string",
+          maxLength: CURSOR_MAX,
+          description:
+            "page.nextCursor of the previous page. Send it alone to continue the same listing.",
         },
       },
       required: ["connectionId"],
@@ -78,13 +154,44 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_relations",
     description:
-      "Retrieves foreign-key relationships for a connection. Requires active per-connection MCP/JIT access. Use after get_schema when joins or dependency analysis need table relationships.",
+      "Retrieves foreign-key relationships for a connection. Requires active per-connection MCP/JIT access. With only connectionId it returns every foreign key column by column. With discovery arguments it returns whole foreign keys (composite ones with their columns in order) page by page, filtered by schema and table on the referencing side, the referenced side or both.",
     inputSchema: {
       type: "object",
       properties: {
         connectionId: {
           type: "string",
           description: "Connection id returned by list_connections.",
+        },
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: IDENTIFIER_MAX,
+          description:
+            "Exact schema name. With a table and no schema, the engine's default schema.",
+        },
+        table: {
+          type: "string",
+          minLength: 1,
+          maxLength: IDENTIFIER_MAX,
+          description: "Exact table name, without its schema.",
+        },
+        direction: {
+          type: "string",
+          enum: ["outgoing", "incoming", "both"],
+          description:
+            "outgoing: keys defined on the filter; incoming: keys pointing to it; both (default).",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: PAGE_MAX,
+          description: "Foreign keys per page. Defaults to 50.",
+        },
+        cursor: {
+          type: "string",
+          maxLength: CURSOR_MAX,
+          description:
+            "page.nextCursor of the previous page. Send it alone to continue the same listing.",
         },
       },
       required: ["connectionId"],
@@ -246,6 +353,22 @@ export function createRelataMcpServer(
     : undefined;
   let capabilitiesInFlight: Promise<DatabaseCapabilitiesCatalog> | undefined;
 
+  const forgetCapabilities = () => {
+    capabilitiesCache = undefined;
+  };
+
+  /**
+   * Discovery arguments only travel to a backend that explicitly lists
+   * schema_discovery_v1. An older backend would ignore them and answer with
+   * the whole database, which is not what the agent asked for.
+   */
+  const assertSchemaDiscovery = async (): Promise<void> => {
+    const catalog = await loadCapabilities();
+    if (schemaDiscoveryEngines(catalog).length === 0) {
+      throw new SchemaDiscoveryUnsupportedError();
+    }
+  };
+
   const loadCapabilities = async (): Promise<DatabaseCapabilitiesCatalog> => {
     const now = Date.now();
     if (capabilitiesCache && capabilitiesCache.expiresAt > now) {
@@ -286,12 +409,57 @@ export function createRelataMcpServer(
         case "list_connections":
           return toolJson(await apiClient.listConnections());
         case "get_schema": {
-          const { connectionId } = GetSchemaInput.parse(rawArgs ?? {});
-          return toolJson(await apiClient.getSchema(connectionId));
+          const input = GetSchemaInput.parse(rawArgs ?? {});
+          if (!hasDiscoveryArguments(input)) {
+            return toolJson(await apiClient.getSchema(input.connectionId));
+          }
+          const { connectionId, schema, query, table, limit } = input;
+          const target = schemaDiscoveryTarget(input);
+          await assertSchemaDiscovery();
+          if (target === "continue") {
+            return toolJson(
+              await apiClient.continueSchemaListing(connectionId, {
+                cursor: input.cursor!,
+                schema,
+                query,
+                limit,
+              }),
+            );
+          }
+          if (target === "table") {
+            return toolJson(
+              await apiClient.describeTable(connectionId, {
+                schema,
+                table: table!,
+              }),
+            );
+          }
+          if (target === "schemas") {
+            return toolJson(
+              await apiClient.listSchemas(connectionId, {
+                query,
+                limit,
+                cursor: input.cursor,
+              }),
+            );
+          }
+          return toolJson(
+            await apiClient.listTables(connectionId, {
+              schema,
+              query,
+              limit,
+              cursor: input.cursor,
+            }),
+          );
         }
         case "get_relations": {
-          const { connectionId } = GetRelationsInput.parse(rawArgs ?? {});
-          return toolJson(await apiClient.getRelations(connectionId));
+          const input = GetRelationsInput.parse(rawArgs ?? {});
+          if (!hasDiscoveryArguments(input)) {
+            return toolJson(await apiClient.getRelations(input.connectionId));
+          }
+          await assertSchemaDiscovery();
+          const { connectionId, ...params } = input;
+          return toolJson(await apiClient.getRelationsPage(connectionId, params));
         }
         case "sample_rows": {
           const { connectionId, schema, table, limit } = SampleRowsInput.parse(
@@ -346,11 +514,61 @@ export function createRelataMcpServer(
           return toolError(`Unknown tool: ${name}`);
       }
     } catch (error) {
-      return toolError(describeError(error));
+      // A missing route means the capabilities we cached are no longer this
+      // backend's (a rollback or a rolling deploy): read them again next time.
+      if (error instanceof SchemaDiscoveryUnsupportedError) forgetCapabilities();
+      return toolError(describeError(error), errorDetails(error));
     }
   });
 
   return server;
+}
+
+/**
+ * Which discovery call a get_schema call asks for. A table means its detail;
+ * mode schemas lists schemas; a cursor without a mode continues whichever
+ * listing it came from (only the backend can read the cursor, so it decides);
+ * anything else lists tables. Contradictory combinations are rejected like
+ * any other invalid argument.
+ */
+function schemaDiscoveryTarget(input: {
+  mode?: "schemas" | "tables" | "table";
+  schema?: string;
+  query?: string;
+  table?: string;
+  limit?: number;
+  cursor?: string;
+}): "schemas" | "tables" | "table" | "continue" {
+  const invalid = (message: string) =>
+    new z.ZodError([{ code: "custom", path: ["mode"], message }]);
+  const target =
+    input.mode ??
+    (input.table !== undefined
+      ? "table"
+      : input.cursor !== undefined
+        ? "continue"
+        : "tables");
+  if (target === "table") {
+    if (input.table === undefined) {
+      throw invalid('mode "table" needs table');
+    }
+    if (input.cursor !== undefined) {
+      throw invalid('mode "table" is not paged; do not send cursor');
+    }
+    // A detail is one exact table: a search text or a page size would be
+    // silently ignored, and the agent would believe it filtered something.
+    if (input.query !== undefined || input.limit !== undefined) {
+      throw invalid(
+        'mode "table" reads one table; it takes only schema and table, not query or limit',
+      );
+    }
+  } else if (input.table !== undefined) {
+    throw invalid(`mode "${target}" does not take table`);
+  }
+  if (target === "schemas" && input.schema !== undefined) {
+    throw invalid('mode "schemas" does not take schema');
+  }
+  return target;
 }
 
 function toolJson(payload: unknown) {
@@ -361,10 +579,13 @@ function toolJson(payload: unknown) {
   };
 }
 
-function toolError(message: string) {
+function toolError(message: string, details: Record<string, unknown> = {}) {
   return {
     content: [
-      { type: "text" as const, text: JSON.stringify({ error: message }, null, 2) },
+      {
+        type: "text" as const,
+        text: JSON.stringify({ error: message, ...details }, null, 2),
+      },
     ],
     isError: true,
   };
@@ -377,8 +598,38 @@ function describeError(error: unknown): string {
       .join("; ")}`;
   }
   if (error instanceof RelataApiError) {
-    return `RelataSQL API error (${error.status}): ${error.message}`;
+    const code = backendErrorCode(error);
+    return `RelataSQL API error (${error.status}${code ? `, ${code}` : ""}): ${error.message}`;
   }
   if (error instanceof Error) return error.message;
   return "Unknown error";
+}
+
+/** The backend's stable error code, when its body carries one. */
+function backendErrorCode(error: RelataApiError): string | undefined {
+  const body = error.body;
+  if (body && typeof body === "object" && "code" in body) {
+    const code = (body as { code: unknown }).code;
+    if (typeof code === "string" && code.length > 0) return code;
+  }
+  return undefined;
+}
+
+/**
+ * Structured fields an agent can act on: the backend code and, for a table
+ * that is not where it was asked for, where tables with that name exist.
+ */
+function errorDetails(error: unknown): Record<string, unknown> {
+  if (error instanceof SchemaDiscoveryUnsupportedError) {
+    return { code: "SCHEMA_DISCOVERY_UNSUPPORTED" };
+  }
+  if (!(error instanceof RelataApiError)) return {};
+  const code = backendErrorCode(error);
+  const body = error.body as { candidates?: unknown } | null;
+  return {
+    ...(code && { code }),
+    ...(body &&
+      typeof body === "object" &&
+      Array.isArray(body.candidates) && { candidates: body.candidates }),
+  };
 }
