@@ -112,7 +112,7 @@ catalog instead:
 
 - Pass `schema` and `table` as separate arguments; names are used verbatim and are never split on dots.
 - A table without `schema` means the engine's default schema (`public`, `dbo`, or the connected MySQL database). In MySQL the only schema is the connected database.
-- Continue a listing by sending only `page.nextCursor`. Cursors survive schema changes between pages.
+- Continue a listing by sending only `page.nextCursor` (with `connectionId`): the server continues whichever listing, schemas or tables, the cursor came from, and says which in `listing`. A cursor sent with a `mode` must belong to that mode's listing. Cursors survive schema changes between pages.
 - Discovery arguments need a RelataSQL server that lists `schema_discovery_v1` in its capability catalog. Against an older server the tools return `SCHEMA_DISCOVERY_UNSUPPORTED` without calling it; call them with only `connectionId` there.
 
 ## Security model

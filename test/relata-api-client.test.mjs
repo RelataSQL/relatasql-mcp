@@ -162,3 +162,44 @@ test("a 404 tells a missing table from a missing route", async (t) => {
     (error) => error instanceof SchemaDiscoveryUnsupportedError,
   );
 });
+
+test("a continued listing must say which listing it is and keep the schema sent", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let body;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    return discoveryResponse(200, body, { "X-RelataSQL-Schema-Discovery": "v1" });
+  };
+  const client = new RelataApiClient("https://api.example.test", "api-key");
+  const tables = {
+    listing: "tables",
+    connectionId: "c1",
+    filter: { schema: "academic", query: "" },
+    tables: [],
+    page: { limit: 1, totalMatches: 0, hasMore: false, nextCursor: null },
+  };
+
+  body = tables;
+  await client.continueSchemaListing("c1", { cursor: "k", schema: "academic" });
+  assert.equal(
+    urls.at(-1),
+    "https://api.example.test/mcp/connections/c1/schema/page?cursor=k&schema=academic",
+  );
+
+  // An answer that does not say what it continued is not guessed at.
+  body = { ...tables, listing: undefined };
+  await assert.rejects(
+    client.continueSchemaListing("c1", { cursor: "k" }),
+    (error) => error instanceof RelataEchoMismatchError,
+  );
+  // Nor is one for another schema than the one sent.
+  body = { ...tables, filter: { schema: "iam", query: "" } };
+  await assert.rejects(
+    client.continueSchemaListing("c1", { cursor: "k", schema: "academic" }),
+    (error) => error instanceof RelataEchoMismatchError,
+  );
+});

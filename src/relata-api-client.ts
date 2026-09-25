@@ -162,6 +162,14 @@ export interface RelataTablesResult {
   page: RelataDiscoveryPage & { totalMatches: number };
 }
 
+/**
+ * The next page of the get_schema listing a cursor belongs to. The cursor is
+ * opaque; `listing` is how the backend says which listing it continued.
+ */
+export type RelataSchemaListingPage =
+  | ({ listing: "schemas" } & RelataSchemasResult)
+  | ({ listing: "tables" } & RelataTablesResult);
+
 /** One whole foreign key; composite keys keep their columns in order. */
 export interface RelataForeignKey {
   key: [fromSchema: string, fromTable: string, constraintName: string];
@@ -378,6 +386,38 @@ export class RelataApiClient {
     );
     this.assertConnection(result, connectionId);
     if (params.schema !== undefined && result.filter?.schema !== params.schema) {
+      throw new RelataEchoMismatchError("schema");
+    }
+    return result;
+  }
+
+  /**
+   * Continues, with only its cursor, whichever listing (schemas or tables)
+   * the cursor came from. The backend reads the cursor; this client never
+   * does. Filters and limit, when sent, are checked against the cursor.
+   */
+  async continueSchemaListing(
+    connectionId: string,
+    params: {
+      cursor: string;
+      schema?: string;
+      query?: string;
+      limit?: number;
+    },
+  ): Promise<RelataSchemaListingPage> {
+    const result = await this.discovery<RelataSchemaListingPage>(
+      connectionId,
+      "schema/page",
+      params,
+    );
+    this.assertConnection(result, connectionId);
+    if (result?.listing !== "schemas" && result?.listing !== "tables") {
+      throw new RelataEchoMismatchError("listing");
+    }
+    if (
+      params.schema !== undefined &&
+      (result.listing !== "tables" || result.filter?.schema !== params.schema)
+    ) {
       throw new RelataEchoMismatchError("schema");
     }
     return result;

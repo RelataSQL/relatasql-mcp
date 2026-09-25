@@ -112,7 +112,7 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           enum: ["schemas", "tables", "table"],
           description:
-            "schemas: list schemas; tables: list tables (the default when schema or query is given); table: one table's detail (the default when table is given).",
+            "schemas: list schemas; tables: list tables (the default when schema or query is given); table: one table's detail (the default when table is given). Without mode, a cursor continues the listing it came from.",
         },
         schema: {
           type: "string",
@@ -415,6 +415,16 @@ export function createRelataMcpServer(
           const { connectionId, schema, query, table, limit } = input;
           const target = schemaDiscoveryTarget(input);
           await assertSchemaDiscovery();
+          if (target === "continue") {
+            return toolJson(
+              await apiClient.continueSchemaListing(connectionId, {
+                cursor: input.cursor!,
+                schema,
+                query,
+                limit,
+              }),
+            );
+          }
           if (target === "table") {
             return toolJson(
               await apiClient.describeTable(connectionId, {
@@ -514,20 +524,27 @@ export function createRelataMcpServer(
 }
 
 /**
- * Which discovery listing a get_schema call asks for. A table means its
- * detail; mode schemas lists schemas; anything else lists tables.
- * Contradictory combinations are rejected like any other invalid argument.
+ * Which discovery call a get_schema call asks for. A table means its detail;
+ * mode schemas lists schemas; a cursor without a mode continues whichever
+ * listing it came from (only the backend can read the cursor, so it decides);
+ * anything else lists tables. Contradictory combinations are rejected like
+ * any other invalid argument.
  */
 function schemaDiscoveryTarget(input: {
   mode?: "schemas" | "tables" | "table";
   schema?: string;
   table?: string;
   cursor?: string;
-}): "schemas" | "tables" | "table" {
+}): "schemas" | "tables" | "table" | "continue" {
   const invalid = (message: string) =>
     new z.ZodError([{ code: "custom", path: ["mode"], message }]);
   const target =
-    input.mode ?? (input.table !== undefined ? "table" : "tables");
+    input.mode ??
+    (input.table !== undefined
+      ? "table"
+      : input.cursor !== undefined
+        ? "continue"
+        : "tables");
   if (target === "table") {
     if (input.table === undefined) {
       throw invalid('mode "table" needs table');

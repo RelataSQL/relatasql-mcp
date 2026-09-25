@@ -17,6 +17,9 @@ Dates are npm publish dates.
   table's columns, keys and incoming/outgoing foreign keys, and page through whole foreign keys
   (composite keys stay together). A missing table reports where a table with that name exists.
   Calls with only `connectionId` behave exactly as before.
+- Sending only `connectionId` and a listing's `cursor` to `get_schema` continues that listing,
+  schemas or tables, and the page says which in `listing`; a `cursor` sent with a `mode` still
+  has to come from that mode's listing.
 - Discovery arguments are sent only to servers whose capability catalog lists
   `schema_discovery_v1`; older servers get an explicit `SCHEMA_DISCOVERY_UNSUPPORTED` error
   instead of a silently unfiltered answer, and responses for another table, schema or connection

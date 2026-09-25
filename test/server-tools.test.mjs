@@ -116,6 +116,104 @@ test("get_schema routes by arguments", async (t) => {
   assert.equal(text(discovery).filter.schema, "academic");
 });
 
+/**
+ * A backend double with the real cursor rule: a cursor only continues its
+ * own listing, so a schemas cursor sent to the tables route is a 400
+ * MCP_SCHEMA_CURSOR_CONTEXT_MISMATCH, exactly as RelataSQL answers it.
+ */
+function schemasBackend(url) {
+  const header = { "X-RelataSQL-Schema-Discovery": "v1" };
+  const SECOND_PAGE = "opaque-cursor-of-a-schemas-listing";
+  const page = (names, nextCursor) => ({
+    connectionId: "c1",
+    engine: "postgres",
+    serverVersion: "17.5",
+    defaultSchema: "public",
+    filter: { query: "" },
+    schemas: names.map((name) => ({ name, tableCount: 1, viewCount: 0 })),
+    page: { limit: 2, hasMore: nextCursor !== null, nextCursor },
+  });
+  const cursor = url.searchParams.get("cursor");
+  if (url.pathname === "/mcp/capabilities") {
+    return jsonResponse(200, DISCOVERY);
+  }
+  if (url.pathname === "/mcp/connections/c1/schemas") {
+    return jsonResponse(
+      200,
+      cursor === SECOND_PAGE
+        ? page(["iam", "public"], null)
+        : page(["academic", "audit"], SECOND_PAGE),
+      header,
+    );
+  }
+  if (url.pathname === "/mcp/connections/c1/schema/page" && cursor === SECOND_PAGE) {
+    return jsonResponse(
+      200,
+      { listing: "schemas", ...page(["iam", "public"], null) },
+      header,
+    );
+  }
+  if (cursor === SECOND_PAGE) {
+    return jsonResponse(
+      400,
+      {
+        statusCode: 400,
+        code: "MCP_SCHEMA_CURSOR_CONTEXT_MISMATCH",
+        message: "The cursor belongs to another listing.",
+      },
+      header,
+    );
+  }
+  return jsonResponse(404, { message: "unexpected" });
+}
+
+test("a lone cursor continues the schemas listing it came from", async (t) => {
+  const { client, calls } = await connect(t, schemasBackend);
+
+  const first = await client.callTool({
+    name: "get_schema",
+    arguments: { connectionId: "c1", mode: "schemas", limit: 2 },
+  });
+  const cursor = text(first).page.nextCursor;
+  // What the tool description tells the agent to do: send only the cursor.
+  const next = await client.callTool({
+    name: "get_schema",
+    arguments: { connectionId: "c1", cursor },
+  });
+
+  assert.equal(next.isError, undefined, JSON.stringify(text(next)));
+  assert.equal(
+    calls.at(-1),
+    `/mcp/connections/c1/schema/page?cursor=${cursor}`,
+  );
+  assert.equal(text(next).listing, "schemas");
+  assert.deepEqual(
+    text(next).schemas.map((schema) => schema.name),
+    ["iam", "public"],
+  );
+});
+
+test("control: a cursor with its mode still goes to that listing's route", async (t) => {
+  const { client, calls } = await connect(t, schemasBackend);
+
+  const first = await client.callTool({
+    name: "get_schema",
+    arguments: { connectionId: "c1", mode: "schemas", limit: 2 },
+  });
+  const cursor = text(first).page.nextCursor;
+  const next = await client.callTool({
+    name: "get_schema",
+    arguments: { connectionId: "c1", mode: "schemas", cursor },
+  });
+
+  assert.equal(next.isError, undefined);
+  assert.equal(calls.at(-1), `/mcp/connections/c1/schemas?cursor=${cursor}`);
+  assert.deepEqual(
+    text(next).schemas.map((schema) => schema.name),
+    ["iam", "public"],
+  );
+});
+
 test("discovery args without schema_discovery_v1 fail explicitly", async (t) => {
   const { client, calls } = await connect(t, (url) =>
     url.pathname === "/mcp/capabilities"
