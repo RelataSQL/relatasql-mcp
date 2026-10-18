@@ -8,6 +8,10 @@ Dates are npm publish dates.
 
 ## [Unreleased]
 
+### Security
+
+- Update the MCP SDK and HTTP dependencies to address their known security advisories.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added

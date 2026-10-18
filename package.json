@@ -41,7 +41,7 @@
     "url": "git+https://github.com/RelataSQL/relatasql-mcp.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "dotenv": "^16.4.5",
     "zod": "^3.23.8"
   },
